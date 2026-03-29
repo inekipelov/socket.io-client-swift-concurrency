@@ -10,20 +10,34 @@ const io = new Server(httpServer, {
 });
 
 io.on('connection', (socket) => {
-  socket.on('ping', (payload, ack) => {
-    const value = Number(payload?.value ?? 0);
-    const response = { message: 'pong', value };
-
-    if (typeof ack === 'function') {
-      ack(response);
-    }
-
-    socket.emit('pongEvent', response);
+  socket.on('echo', (...args) => {
+    socket.emit('echoResponse', ...args);
   });
 
-  socket.on('fetch', (payload) => {
-    const value = Number(payload?.value ?? 0);
-    socket.emit('fetchResponse', { message: 'pong', value });
+  socket.on('ackPing', (...args) => {
+    const ack = args.at(-1);
+    if (typeof ack === 'function') {
+      ack('pong', 7);
+    }
+  });
+
+  socket.on('noAck', (...args) => {
+    void args;
+  });
+
+  socket.on('delayedAck', (...args) => {
+    const ack = args.at(-1);
+    if (typeof ack === 'function') {
+      setTimeout(() => ack('late'), 1500);
+    }
+  });
+
+  socket.on('ping', (...args) => {
+    const ack = args.at(-1);
+    if (typeof ack === 'function') {
+      ack('pong', 42);
+    }
+    socket.emit('pongEvent', ...args.slice(0, -1));
   });
 });
 

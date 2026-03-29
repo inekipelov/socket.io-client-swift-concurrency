@@ -5,10 +5,10 @@ import PackageDescription
 let package = Package(
     name: "SocketIOConcurrency",
     platforms: [
-        .iOS(.v16),
-        .macOS(.v13),
-        .tvOS(.v16),
-        .watchOS(.v9),
+        .iOS(.v13),
+        .macOS(.v10_15),
+        .tvOS(.v13),
+        .watchOS(.v6),
         .visionOS(.v1),
     ],
     products: [
@@ -25,11 +25,15 @@ let package = Package(
             name: "SocketIOConcurrency",
             dependencies: [
                 .product(name: "SocketIO", package: "socket.io-client-swift"),
-            ]
+            ],
+            path: "Source"
         ),
         .testTarget(
             name: "SocketIOConcurrencyTests",
-            dependencies: ["SocketIOConcurrency"]
+            dependencies: ["SocketIOConcurrency"],
+            resources: [
+                .copy("../IntegrationServer")
+            ]
         ),
         .testTarget(
             name: "SocketIOConcurrencyIntegrationTests",
