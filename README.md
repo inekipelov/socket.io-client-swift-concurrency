@@ -1,29 +1,23 @@
 # SocketIOConcurrency
 
-Thin async/await extension layer for `socket.io-client-swift`.
+`SocketIOConcurrency` is a tiny Swift Package that adds async/await-friendly
+APIs to `socket.io-client-swift` via a thin `SocketIOClient` extension.
 
-## Installation
+The API keeps original Socket.IO naming (`on`, `emit`, `emitWithAck`) and adds
+concurrency semantics through `AsyncThrowingStream`, `async`, and `async throws`.
 
-```swift
-.package(url: "https://github.com/inekipelov/socket.io-client-swift-concurrency", branch: "main")
-```
+<p align="center">
+  <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white" alt="Swift 6.2"></a>
+  <a href="https://developer.apple.com/ios/"><img src="https://img.shields.io/badge/iOS-13.0+-000000?logo=apple" alt="iOS 13.0+"></a>
+  <a href="https://developer.apple.com/macos/"><img src="https://img.shields.io/badge/macOS-10.15+-000000?logo=apple" alt="macOS 10.15+"></a>
+  <a href="https://developer.apple.com/tvos/"><img src="https://img.shields.io/badge/tvOS-13.0+-000000?logo=apple" alt="tvOS 13.0+"></a>
+  <a href="https://developer.apple.com/watchos/"><img src="https://img.shields.io/badge/watchOS-6.0+-000000?logo=apple" alt="watchOS 6.0+"></a>
+  <a href="https://developer.apple.com/visionos/"><img src="https://img.shields.io/badge/visionOS-1.0+-000000?logo=apple" alt="visionOS 1.0+"></a>
+</p>
 
-Link product `SocketIOConcurrency` and create your `SocketManager`/`SocketIOClient` as usual.
-
-## API
-
-`SocketIOClient` extension methods:
-
-- `onAsync(_ event: String) -> AsyncThrowingStream<[Any], Error>`
-- `emitAsync(_ event: String, _ items: SocketData...) async`
-- `emitAsync(_ event: String, with items: [SocketData]) async`
-- `emitWithAckAsync(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws -> [Any]`
-- `emitWithAckAsync(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws -> [Any]`
-
-## Quick Start
+## Usage
 
 ```swift
-import SocketIO
 import SocketIOConcurrency
 
 let manager = SocketManager(
@@ -34,30 +28,34 @@ let socket = manager.defaultSocket
 
 socket.connect()
 
-let ack = try await socket.emitWithAckAsync("ping", "hello", timeout: 3.0)
-print(ack) // ["pong", 42]
+let ack = try await socket.emitWithAck("ping", "hello", timeout: 3.0)
+print(ack)
 
-let stream = socket.onAsync("pongEvent")
+let stream = socket.on("pongEvent")
 let task = Task {
-    for try await eventItems in stream {
-        print(eventItems)
+    for try await payload in stream {
+        print(payload)
     }
 }
 
-await socket.emitAsync("echo", "value")
+await socket.emit("echo", "value")
+
 task.cancel()
 socket.disconnect()
 ```
 
-## Testing
+Public async extension surface:
 
-```bash
-swift test --no-parallel
-```
+- `on(_ event: String) -> AsyncThrowingStream<[any Sendable], Error>`
+- `emit(_ event: String, _ items: SocketData...) async`
+- `emit(_ event: String, with items: [SocketData]) async`
+- `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws -> [any Sendable]`
+- `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws -> [any Sendable]`
 
-Integration tests with local Socket.IO server:
+## Installation
 
-```bash
-npm install --prefix Tests/IntegrationServer
-RUN_INTEGRATION_TESTS=1 swift test --filter SocketIOConcurrencyIntegrationTests --no-parallel
+Add the package to your `Package.swift` dependencies:
+
+```swift
+.package(url: "https://github.com/inekipelov/socket.io-client-swift-concurrency.git", from: "0.1.0")
 ```

@@ -6,7 +6,7 @@ import SocketIOConcurrency
 
 @Suite("SocketIOConcurrency integration tests")
 struct SocketIOConcurrencyIntegrationTests {
-    @Test("emitWithAckAsync and onAsync against local Socket.IO server")
+    @Test("emitWithAck and on against local Socket.IO server")
     func socketRoundTrip() async throws {
         guard ProcessInfo.processInfo.environment["RUN_INTEGRATION_TESTS"] == "1" else {
             return
@@ -32,10 +32,10 @@ struct SocketIOConcurrencyIntegrationTests {
             try await connect(socket)
             defer { socket.disconnect() }
 
-            let stream = socket.onAsync("pongEvent")
+            let stream = socket.on("pongEvent")
             var iterator = stream.makeAsyncIterator()
 
-            let ack = try await socket.emitWithAckAsync("ping", "hello", timeout: 3.0)
+            let ack = try await socket.emitWithAck("ping", "hello", timeout: 3.0)
             #expect(ack.count == 2)
             #expect(ack[0] as? String == "pong")
             #expect(ack[1] as? Int == 42)

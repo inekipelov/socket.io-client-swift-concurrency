@@ -13,7 +13,7 @@ public extension SocketIOClient {
     /// - Parameter bufferingPolicy: Buffering policy for the produced async stream.
     /// - Returns: An `AsyncThrowingStream` of raw payload items converted to `Sendable`.
     @preconcurrency
-    func onAsync(
+    func on(
         _ event: String,
         bufferingPolicy: AsyncThrowingStream<[any Sendable], Error>.Continuation.BufferingPolicy = .bufferingNewest(100)
     ) -> AsyncThrowingStream<[any Sendable], Error> {
@@ -76,8 +76,8 @@ public extension SocketIOClient {
     ///   - event: Event name to emit.
     ///   - items: Payload items conforming to `SocketData`.
     @preconcurrency
-    func emitAsync(_ event: String, _ items: SocketData...) async {
-        await emitAsync(event, with: items)
+    func emit(_ event: String, _ items: SocketData...) async {
+        await emit(event, with: items)
     }
 
     /// Emits an event with payload items and awaits write completion.
@@ -86,7 +86,7 @@ public extension SocketIOClient {
     ///   - event: Event name to emit.
     ///   - items: Payload items conforming to `SocketData`.
     @preconcurrency
-    func emitAsync(_ event: String, with items: [SocketData]) async {
+    func emit(_ event: String, with items: [SocketData]) async {
         await withCheckedContinuation { continuation in
             let queue = self.manager?.handleQueue ?? DispatchQueue.main
             queue.async {
@@ -107,8 +107,8 @@ public extension SocketIOClient {
     /// - Throws: `CancellationError` if the task is cancelled,
     ///   or `NSError` when ack times out (`NO ACK`).
     @preconcurrency
-    func emitWithAckAsync(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws -> [any Sendable] {
-        try await emitWithAckAsync(event, with: items, timeout: timeout)
+    func emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws -> [any Sendable] {
+        try await emitWithAck(event, with: items, timeout: timeout)
     }
 
     /// Emits an event expecting an acknowledgement and awaits the ack payload.
@@ -121,7 +121,7 @@ public extension SocketIOClient {
     /// - Throws: `CancellationError` if the task is cancelled,
     ///   or `NSError` when ack times out (`NO ACK`).
     @preconcurrency
-    func emitWithAckAsync(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws -> [any Sendable] {
+    func emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws -> [any Sendable] {
         guard timeout > 0 else {
             throw NSError(
                 domain: "SocketIOClient.Async",

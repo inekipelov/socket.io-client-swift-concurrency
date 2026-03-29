@@ -6,12 +6,12 @@ import SocketIOConcurrency
 
 @Suite("SocketIOClient async extension")
 struct SocketIOClientAsyncTests {
-    @Test("onAsync receives event payload")
-    func onAsyncReceivesEvent() async throws {
+    @Test("on receives event payload")
+    func onReceivesEvent() async throws {
         let manager = makeManager()
         let socket = SocketIOClient(manager: manager, nsp: "/")
 
-        let stream = socket.onAsync("pong")
+        let stream = socket.on("pong")
         var iterator = stream.makeAsyncIterator()
 
         socket.handleEvent("pong", data: ["ok", 1], isInternalMessage: true)
@@ -22,14 +22,14 @@ struct SocketIOClientAsyncTests {
         #expect(data[1] as? Int == 1)
     }
 
-    @Test("onAsync unsubscribes handlers on cancellation")
-    func onAsyncUnsubscribesOnCancel() async throws {
+    @Test("on unsubscribes handlers on cancellation")
+    func onUnsubscribesOnCancel() async throws {
         let manager = makeManager()
         let socket = SocketIOClient(manager: manager, nsp: "/")
         let queue = manager.handleQueue
 
         let initialCount = await handlersCount(socket: socket, queue: queue)
-        var stream: AsyncThrowingStream<[any Sendable], Error>? = socket.onAsync("pong")
+        var stream: AsyncThrowingStream<[any Sendable], Error>? = socket.on("pong")
         let registeredCount = await handlersCount(socket: socket, queue: queue)
         #expect(registeredCount == initialCount + 3)
 
@@ -41,12 +41,12 @@ struct SocketIOClientAsyncTests {
         #expect(finalCount == initialCount)
     }
 
-    @Test("emitAsync forwards event and items")
-    func emitAsyncForwardsItems() async {
+    @Test("emit forwards event and items")
+    func emitForwardsItems() async {
         let manager = makeManager()
         let socket = RecordingSocketIOClient(manager: manager, nsp: "/")
 
-        await socket.emitAsync("hello", with: ["one", 2])
+        await socket.emit("hello", with: ["one", 2])
 
         #expect(socket.lastEmittedEvent == "hello")
         #expect(socket.lastEmittedItems.count == 2)
@@ -54,8 +54,8 @@ struct SocketIOClientAsyncTests {
         #expect(socket.lastEmittedItems[1] as? Int == 2)
     }
 
-    @Test("emitWithAckAsync returns ack payload")
-    func emitWithAckAsyncSuccess() async throws {
+    @Test("emitWithAck returns ack payload")
+    func emitWithAckSuccess() async throws {
         let manager = makeManager()
         let socket = SocketIOClient(manager: manager, nsp: "/")
         socket.didConnect(toNamespace: "/", payload: nil)
@@ -64,31 +64,31 @@ struct SocketIOClientAsyncTests {
             socket.handleAck(0, data: ["pong", 7])
         }
 
-        let ack = try await socket.emitWithAckAsync("ackEvent", "ping", timeout: 1.0)
+        let ack = try await socket.emitWithAck("ackEvent", "ping", timeout: 1.0)
         #expect(ack.count == 2)
         #expect(ack[0] as? String == "pong")
         #expect(ack[1] as? Int == 7)
     }
 
-    @Test("emitWithAckAsync throws on NO ACK timeout")
-    func emitWithAckAsyncTimeout() async {
+    @Test("emitWithAck throws on NO ACK timeout")
+    func emitWithAckTimeout() async {
         let manager = makeManager()
         let socket = SocketIOClient(manager: manager, nsp: "/")
         socket.didConnect(toNamespace: "/", payload: nil)
 
         await #expect(throws: Error.self) {
-            _ = try await socket.emitWithAckAsync("noAck", timeout: 0.05)
+            _ = try await socket.emitWithAck("noAck", timeout: 0.05)
         }
     }
 
-    @Test("emitWithAckAsync supports cancellation")
-    func emitWithAckAsyncCancellation() async {
+    @Test("emitWithAck supports cancellation")
+    func emitWithAckCancellation() async {
         let manager = makeManager()
         let socket = SocketIOClient(manager: manager, nsp: "/")
         socket.didConnect(toNamespace: "/", payload: nil)
 
         let task = Task<Void, Error> {
-            _ = try await socket.emitWithAckAsync("delayedAck", timeout: 2.0)
+            _ = try await socket.emitWithAck("delayedAck", timeout: 2.0)
         }
 
         task.cancel()
@@ -102,8 +102,8 @@ struct SocketIOClientAsyncTests {
         }
     }
 
-    @Test("emitWithAckAsync does not dispatch emit after early cancellation")
-    func emitWithAckAsyncCancellationPreventsDispatch() async {
+    @Test("emitWithAck does not dispatch emit after early cancellation")
+    func emitWithAckCancellationPreventsDispatch() async {
         let manager = makeManager()
         let queue = DispatchQueue(label: "SocketIOClientAsyncTests.emitWithAck.cancel")
         manager.handleQueue = queue
@@ -114,7 +114,7 @@ struct SocketIOClientAsyncTests {
         socket.didConnect(toNamespace: "/", payload: nil)
 
         let task = Task<Void, Error> {
-            _ = try await socket.emitWithAckAsync("delayedAck", timeout: 2.0)
+            _ = try await socket.emitWithAck("delayedAck", timeout: 2.0)
         }
 
         await Task.yield()
