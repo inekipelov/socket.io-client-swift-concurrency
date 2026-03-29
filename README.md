@@ -52,10 +52,41 @@ Public async extension surface:
 - `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws -> [any Sendable]`
 - `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws -> [any Sendable]`
 
+All throwable paths are normalized to `SocketIOError`.
+
+## Error Contract
+
+`SocketIOError` is the single public error type for this package:
+
+- `cancelled`
+- `invalidTimeout(TimeInterval)`
+- `notConnected(event: String)`
+- `ackTimedOut(event: String, timeout: TimeInterval)`
+- `disconnected(event: String, reason: String?)`
+- `clientError(event: String?, message: String, source: SocketIOError.Source)`
+- `invalidSocketData(event: String?, message: String)`
+- `unsupportedPayloadType(typeName: String)`
+- `unsupportedDictionaryKeyType(typeName: String)`
+
+Mapping from original `socket.io-client-swift` signals:
+
+| Original signal | `SocketIOError` |
+| --- | --- |
+| `.error` payload `[eventName, items, error]` | `invalidSocketData(...)` or `clientError(...)` |
+| `.error` payload `["Tried emitting when not connected"]` | `notConnected(event:)` |
+| ack payload `"NO ACK"` | `ackTimedOut(event:timeout:)` |
+| `.disconnect` client event | `disconnected(event:reason:)` |
+
 ## Installation
 
 Add the package to your `Package.swift` dependencies:
 
 ```swift
 .package(url: "https://github.com/inekipelov/socket.io-client-swift-concurrency.git", from: "0.1.0")
+```
+
+## Testing
+
+```bash
+swift test --no-parallel
 ```

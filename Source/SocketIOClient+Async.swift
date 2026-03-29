@@ -7,7 +7,7 @@ public extension SocketIOClient {
     /// The stream yields raw event payload arrays exactly as provided by `socket.io-client-swift`.
     /// Handlers are removed automatically when the stream terminates.
     ///
-    /// The stream finishes with an error when the socket emits `.disconnect` or `.error`.
+    /// The stream finishes with `SocketIOError` when the socket emits `.disconnect` or `.error`.
     ///
     /// - Parameter event: Event name to subscribe to.
     /// - Parameter bufferingPolicy: Buffering policy for the produced async stream.
@@ -29,27 +29,22 @@ public extension SocketIOClient {
                     do {
                         continuation.yield(try makeSendablePayload(from: data))
                     } catch {
-                        continuation.finish(throwing: error)
+                        continuation.finish(throwing: SocketIOError(thrown: error, event: event))
                     }
                 }
 
-                let disconnectID = self.on(clientEvent: .disconnect) { _, _ in
+                let disconnectID = self.on(clientEvent: .disconnect) { data, _ in
                     continuation.finish(
-                        throwing: NSError(
-                            domain: "SocketIOClient.Async",
-                            code: 1001,
-                            userInfo: [NSLocalizedDescriptionKey: "Socket disconnected while listening to \(event)"]
+                        throwing: SocketIOError.disconnected(
+                            event: event,
+                            reason: data.first as? String
                         )
                     )
                 }
 
-                let errorID = self.on(clientEvent: .error) { _, _ in
+                let errorID = self.on(clientEvent: .error) { data, _ in
                     continuation.finish(
-                        throwing: NSError(
-                            domain: "SocketIOClient.Async",
-                            code: 1002,
-                            userInfo: [NSLocalizedDescriptionKey: "Socket error while listening to \(event)"]
-                        )
+                        throwing: SocketIOError(clientEventPayload: data, fallbackEvent: event)
                     )
                 }
 
@@ -104,8 +99,7 @@ public extension SocketIOClient {
     ///   - items: Payload items conforming to `SocketData`.
     ///   - timeout: Timeout in seconds passed to `timingOut(after:)`.
     /// - Returns: Raw ack payload items converted to `Sendable`.
-    /// - Throws: `CancellationError` if the task is cancelled,
-    ///   or `NSError` when ack times out (`NO ACK`).
+    /// - Throws: `SocketIOError`.
     @preconcurrency
     func emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws -> [any Sendable] {
         try await emitWithAck(event, with: items, timeout: timeout)
@@ -118,19 +112,18 @@ public extension SocketIOClient {
     ///   - items: Payload items conforming to `SocketData`.
     ///   - timeout: Timeout in seconds passed to `timingOut(after:)`.
     /// - Returns: Raw ack payload items converted to `Sendable`.
-    /// - Throws: `CancellationError` if the task is cancelled,
-    ///   or `NSError` when ack times out (`NO ACK`).
+    /// - Throws: `SocketIOError`.
     @preconcurrency
     func emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws -> [any Sendable] {
         guard timeout > 0 else {
-            throw NSError(
-                domain: "SocketIOClient.Async",
-                code: 1006,
-                userInfo: [NSLocalizedDescriptionKey: "Ack timeout must be greater than zero"]
-            )
+            throw SocketIOError.invalidTimeout(timeout)
         }
 
-        try Task.checkCancellation()
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw SocketIOError(thrown: error, event: event)
+        }
         let continuationBox = ContinuationBox<[any Sendable]>()
         let queue = self.manager?.handleQueue ?? DispatchQueue.main
 
@@ -139,7 +132,7 @@ public extension SocketIOClient {
                 do {
                     _ = try items.map { try $0.socketRepresentation() }
                 } catch {
-                    continuation.resume(throwing: error)
+                    continuation.resume(throwing: SocketIOError(thrown: error, event: event))
                     return
                 }
 
@@ -156,22 +149,15 @@ public extension SocketIOClient {
                                 return
                             }
 
-                            if let first = data.first as? String,
-                               first == SocketAckStatus.noAck.rawValue {
-                                continuation.resume(
-                                    throwing: NSError(
-                                        domain: "SocketIOClient.Async",
-                                        code: 1003,
-                                        userInfo: [NSLocalizedDescriptionKey: "Ack timed out for event \(event)"]
-                                    )
-                                )
+                            if let ackError = SocketIOError(ackData: data, event: event, timeout: timeout) {
+                                continuation.resume(throwing: ackError)
                                 return
                             }
 
                             do {
                                 continuation.resume(returning: try makeSendablePayload(from: data))
                             } catch {
-                                continuation.resume(throwing: error)
+                                continuation.resume(throwing: SocketIOError(thrown: error, event: event))
                             }
                         }
                     }
@@ -231,7 +217,7 @@ private final class ContinuationBox<T>: @unchecked Sendable {
         lock.lock()
         guard isCancelled == false else {
             lock.unlock()
-            continuation.resume(throwing: CancellationError())
+            continuation.resume(throwing: SocketIOError.cancelled)
             return false
         }
 
@@ -266,7 +252,7 @@ private final class ContinuationBox<T>: @unchecked Sendable {
         self.continuation = nil
         lock.unlock()
 
-        continuation?.resume(throwing: CancellationError())
+        continuation?.resume(throwing: SocketIOError.cancelled)
     }
 }
 
@@ -303,11 +289,7 @@ private func makeSendableValue(_ value: Any) throws -> any Sendable {
     case let value as NSDictionary:
         let pairs = try value.map { key, value -> (String, any Sendable) in
             guard let key = key as? String else {
-                throw NSError(
-                    domain: "SocketIOClient.Async",
-                    code: 1005,
-                    userInfo: [NSLocalizedDescriptionKey: "Unsupported dictionary key type in socket payload"]
-                )
+                throw SocketIOError.unsupportedDictionaryKeyType(typeName: String(describing: type(of: key)))
             }
 
             return (key, try makeSendableValue(value))
@@ -315,10 +297,6 @@ private func makeSendableValue(_ value: Any) throws -> any Sendable {
 
         return Dictionary(uniqueKeysWithValues: pairs)
     default:
-        throw NSError(
-            domain: "SocketIOClient.Async",
-            code: 1004,
-            userInfo: [NSLocalizedDescriptionKey: "Unsupported non-Sendable socket payload type: \(type(of: value))"]
-        )
+        throw SocketIOError.unsupportedPayloadType(typeName: String(describing: type(of: value)))
     }
 }

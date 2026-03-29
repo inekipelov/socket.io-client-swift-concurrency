@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 @preconcurrency import SocketIO
 import Testing
-import SocketIOConcurrency
+@testable import SocketIOConcurrency
 
 @Suite("SocketIOClient async extension")
 struct SocketIOClientAsyncTests {
@@ -76,8 +76,19 @@ struct SocketIOClientAsyncTests {
         let socket = SocketIOClient(manager: manager, nsp: "/")
         socket.didConnect(toNamespace: "/", payload: nil)
 
-        await #expect(throws: Error.self) {
+        do {
             _ = try await socket.emitWithAck("noAck", timeout: 0.05)
+            Issue.record("Expected ack timeout")
+        } catch let error as SocketIOError {
+            guard case let .ackTimedOut(event, timeout) = error else {
+                Issue.record("Expected .ackTimedOut, got \(error)")
+                return
+            }
+
+            #expect(event == "noAck")
+            #expect(timeout == 0.05)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
         }
     }
 
@@ -96,7 +107,28 @@ struct SocketIOClientAsyncTests {
         do {
             _ = try await task.value
             Issue.record("Expected task cancellation")
-        } catch is CancellationError {
+        } catch let error as SocketIOError {
+            #expect(error == .cancelled)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("emitWithAck throws invalid timeout error")
+    func emitWithAckInvalidTimeout() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+
+        do {
+            _ = try await socket.emitWithAck("badTimeout", timeout: 0)
+            Issue.record("Expected invalid timeout error")
+        } catch let error as SocketIOError {
+            guard case let .invalidTimeout(timeout) = error else {
+                Issue.record("Expected .invalidTimeout, got \(error)")
+                return
+            }
+
+            #expect(timeout == 0)
         } catch {
             Issue.record("Unexpected error: \(error)")
         }
@@ -125,6 +157,89 @@ struct SocketIOClientAsyncTests {
         await drain(queue: queue)
 
         #expect(probe.value == 0)
+    }
+
+    @Test("on maps socket client error to typed SocketIOError")
+    func onMapsClientErrorToTypedError() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on("typedErrorEvent")
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.error, data: ["Tried emitting when not connected"])
+
+        do {
+            _ = try await iterator.next()
+            Issue.record("Expected stream error")
+        } catch let error as SocketIOError {
+            #expect(error == .notConnected(event: "typedErrorEvent"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("on maps payload conversion failures to typed SocketIOError")
+    func onMapsPayloadConversionFailureToTypedError() async {
+        final class UnsupportedPayloadType {}
+
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on("badPayload")
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleEvent("badPayload", data: [UnsupportedPayloadType()], isInternalMessage: true)
+
+        do {
+            _ = try await iterator.next()
+            Issue.record("Expected stream error")
+        } catch let error as SocketIOError {
+            guard case .unsupportedPayloadType = error else {
+                Issue.record("Expected .unsupportedPayloadType, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("on maps unsupported dictionary key type to typed SocketIOError")
+    func onMapsUnsupportedDictionaryKeyTypeToTypedError() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on("badDictionary")
+        var iterator = stream.makeAsyncIterator()
+
+        let invalidDictionary = NSDictionary(dictionary: [NSNumber(value: 1): "value"])
+        socket.handleEvent("badDictionary", data: [invalidDictionary], isInternalMessage: true)
+
+        do {
+            _ = try await iterator.next()
+            Issue.record("Expected stream error")
+        } catch let error as SocketIOError {
+            guard case .unsupportedDictionaryKeyType = error else {
+                Issue.record("Expected .unsupportedDictionaryKeyType, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test("normalizer infers engine source from message")
+    func normalizerInfersEngineSource() {
+        let error = SocketIOError(
+            clientEventPayload: ["Engine URLSession became invalid"],
+            fallbackEvent: "engineEvent"
+        )
+
+        guard case let .clientError(event, message, source) = error else {
+            Issue.record("Expected .clientError, got \(error)")
+            return
+        }
+
+        #expect(event == "engineEvent")
+        #expect(message == "Engine URLSession became invalid")
+        #expect(source == .engine)
     }
 
     private func makeManager() -> SocketManager {
