@@ -90,13 +90,17 @@ Public async extension surface:
 - `.ping`
 - `.pong`
 - `.reconnect(reason: SocketIOClient.DisconnectReason)`
-- `.reconnectAttempt(remaining: Int?)`
+- `.reconnectAttempt(attempt: SocketIOClient.ReconnectAttempt)`
 - `.statusChange(SocketIOStatus)`
 - `.websocketUpgrade(headers: [String: String])`
 
 `SocketIOClient.DisconnectReason` includes known cases (`pingTimeout`,
 `namespaceLeave`, `gotDisconnect`, `manualDisconnect`, `reconnectFailed`,
 `socketDisconnected`, etc.), plus `.none` and lossless `.unknown(String)`.
+
+`SocketIOClient.ReconnectAttempt` models reconnect semantics explicitly:
+- `.remaining(Int)` for finite retry configuration.
+- `.unlimited(raw: Int)` for unlimited retries (negative upstream values).
 
 All throwable paths are normalized to `SocketIOClient.Error`.
 

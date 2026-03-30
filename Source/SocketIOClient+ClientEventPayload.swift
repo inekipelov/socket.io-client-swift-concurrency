@@ -10,7 +10,7 @@ public extension SocketIOClient {
         case ping
         case pong
         case reconnect(reason: SocketIOClient.DisconnectReason)
-        case reconnectAttempt(remaining: Int?)
+        case reconnectAttempt(attempt: SocketIOClient.ReconnectAttempt)
         case statusChange(SocketIOStatus)
         case websocketUpgrade(headers: [String: String])
     }
@@ -60,10 +60,12 @@ extension SocketIOClient.ClientEventPayload {
             )
         case .reconnectAttempt:
             self = .reconnectAttempt(
-                remaining: try Self.optionalInt(
-                    from: data,
-                    event: event,
-                    expected: "[remainingAttempts?]"
+                attempt: .init(
+                    rawRemainingAttempts: try Self.requiredInt(
+                        from: data,
+                        event: event,
+                        expected: "[remainingAttempts]"
+                    )
                 )
             )
         case .statusChange:
@@ -120,18 +122,16 @@ extension SocketIOClient.ClientEventPayload {
         return value
     }
 
-    private static func optionalInt(
+    private static func requiredInt(
         from data: [Any],
         event: SocketClientEvent,
         expected: String
-    ) throws(SocketIOClient.Error) -> Int? {
-        guard data.count <= 1 else {
+    ) throws(SocketIOClient.Error) -> Int {
+        guard data.count == 1 else {
             throw invalidData(event: event, data: data, expected: expected)
         }
 
-        guard let first = data.first else {
-            return nil
-        }
+        let first = data[0]
 
         if let value = first as? Int {
             return value

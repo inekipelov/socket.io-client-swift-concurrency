@@ -659,6 +659,54 @@ struct SocketIOClientAsyncTests {
         #expect(payload == .reconnect(reason: .none))
     }
 
+    @Test("on(clientEvent:) maps reconnectAttempt with finite remaining value")
+    func onClientEventReconnectAttemptFinite() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .reconnectAttempt)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.reconnectAttempt, data: [3])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .reconnectAttempt(attempt: .remaining(3)))
+    }
+
+    @Test("on(clientEvent:) maps reconnectAttempt with unlimited strategy value")
+    func onClientEventReconnectAttemptUnlimited() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .reconnectAttempt)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.reconnectAttempt, data: [-1])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .reconnectAttempt(attempt: .unlimited(raw: -1)))
+    }
+
+    @Test("on(clientEvent:) rejects reconnectAttempt payload without int")
+    func onClientEventReconnectAttemptInvalidPayload() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .reconnectAttempt)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.reconnectAttempt, data: [])
+
+        do {
+            _ = try await iterator.next()
+            Issue.record("Expected stream error")
+        } catch let error {
+            guard case .invalidSocketData(let event, _) = error else {
+                Issue.record("Expected .invalidSocketData, got \(error)")
+                return
+            }
+
+            #expect(event == SocketClientEvent.reconnectAttempt.rawValue)
+        }
+    }
+
     @Test("on(clientEvent:) maps connect without payload")
     func onClientEventConnect() async throws {
         let manager = makeManager()
