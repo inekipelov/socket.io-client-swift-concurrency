@@ -6,6 +6,171 @@ import Testing
 
 @Suite("SocketIOClient async extension")
 struct SocketIOClientAsyncTests {
+    @Test("connect waits for connect client event")
+    func connectWaitsForConnectedState() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+
+        manager.handleQueue.asyncAfter(deadline: .now() + 0.05) {
+            socket.didConnect(toNamespace: "/", payload: nil)
+        }
+
+        try await socket.connect(timeout: 1.0)
+    }
+
+    @Test("connect throws typed timeout")
+    func connectTimeout() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+
+        do {
+            try await socket.connect(timeout: 0.05)
+            Issue.record("Expected connect timeout")
+        } catch let error {
+            guard case let .connectTimedOut(timeout) = error else {
+                Issue.record("Expected .connectTimedOut, got \(error)")
+                return
+            }
+
+            #expect(timeout == 0.05)
+        }
+    }
+
+    @Test("connect maps socket client error to typed error")
+    func connectMapsClientError() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+
+        manager.handleQueue.asyncAfter(deadline: .now() + 0.05) {
+            socket.handleClientEvent(.error, data: ["Tried emitting when not connected"])
+        }
+
+        do {
+            try await socket.connect(timeout: 1.0)
+            Issue.record("Expected connect failure")
+        } catch let error {
+            #expect(error == .notConnected(event: SocketClientEvent.connect.rawValue))
+        }
+    }
+
+    @Test("connect supports cancellation")
+    func connectCancellation() async {
+        let manager = makeManager()
+        let queue = DispatchQueue(label: "SocketIOClientAsyncTests.connect.cancel")
+        manager.handleQueue = queue
+        queue.suspend()
+
+        let probe = AckDispatchProbe()
+        let socket = RecordingConnectSocketIOClient(manager: manager, nsp: "/", probe: probe)
+
+        let task = Task<Void, Error> {
+            try await socket.connect(timeout: 1.0)
+        }
+
+        await Task.yield()
+        task.cancel()
+        _ = try? await task.value
+
+        queue.resume()
+        await drain(queue: queue)
+
+        #expect(probe.value == 0)
+    }
+
+    @Test("connect unsubscribes temporary handlers after completion")
+    func connectUnsubscribesHandlersOnCompletion() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let queue = manager.handleQueue
+
+        let initialCount = await handlersCount(socket: socket, queue: queue)
+
+        manager.handleQueue.asyncAfter(deadline: .now() + 0.05) {
+            socket.didConnect(toNamespace: "/", payload: nil)
+        }
+
+        try await socket.connect(timeout: 1.0)
+        await drain(queue: queue)
+        let finalCount = await handlersCount(socket: socket, queue: queue)
+        #expect(finalCount == initialCount)
+    }
+
+    @Test("disconnect waits for disconnect client event")
+    func disconnectWaitsForDisconnectedState() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        socket.didConnect(toNamespace: "/", payload: nil)
+
+        manager.handleQueue.asyncAfter(deadline: .now() + 0.05) {
+            socket.didDisconnect(reason: "Done")
+        }
+
+        try await socket.disconnect(timeout: 1.0)
+    }
+
+    @Test("disconnect throws typed timeout")
+    func disconnectTimeout() async {
+        let manager = makeManager()
+        let socket = RecordingDisconnectSocketIOClient(manager: manager, nsp: "/", emitDisconnectEvent: false)
+        socket.didConnect(toNamespace: "/", payload: nil)
+
+        do {
+            try await socket.disconnect(timeout: 0.05)
+            Issue.record("Expected disconnect timeout")
+        } catch let error {
+            guard case let .disconnectTimedOut(timeout) = error else {
+                Issue.record("Expected .disconnectTimedOut, got \(error)")
+                return
+            }
+
+            #expect(timeout == 0.05)
+        }
+    }
+
+    @Test("disconnect supports cancellation")
+    func disconnectCancellation() async {
+        let manager = makeManager()
+        let queue = DispatchQueue(label: "SocketIOClientAsyncTests.disconnect.cancel")
+        manager.handleQueue = queue
+        queue.suspend()
+
+        let probe = AckDispatchProbe()
+        let socket = RecordingDisconnectProbeSocketIOClient(manager: manager, nsp: "/", probe: probe)
+        socket.didConnect(toNamespace: "/", payload: nil)
+
+        let task = Task<Void, Error> {
+            try await socket.disconnect(timeout: 1.0)
+        }
+
+        await Task.yield()
+        task.cancel()
+        _ = try? await task.value
+
+        queue.resume()
+        await drain(queue: queue)
+
+        #expect(probe.value == 0)
+    }
+
+    @Test("disconnect unsubscribes temporary handlers after completion")
+    func disconnectUnsubscribesHandlersOnCompletion() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        socket.didConnect(toNamespace: "/", payload: nil)
+        let queue = manager.handleQueue
+
+        let initialCount = await handlersCount(socket: socket, queue: queue)
+
+        manager.handleQueue.asyncAfter(deadline: .now() + 0.05) {
+            socket.didDisconnect(reason: "Done")
+        }
+
+        try await socket.disconnect(timeout: 1.0)
+        await drain(queue: queue)
+        let finalCount = await handlersCount(socket: socket, queue: queue)
+        #expect(finalCount == initialCount)
+    }
+
     @Test("on receives event payload")
     func onReceivesEvent() async throws {
         let manager = makeManager()
@@ -409,6 +574,50 @@ private final class RecordingAckSocketIOClient: SocketIOClient {
     override func emitWithAck(_ event: String, with items: [SocketData]) -> OnAckCallback {
         probe.increment()
         return super.emitWithAck(event, with: items)
+    }
+}
+
+private final class RecordingConnectSocketIOClient: SocketIOClient {
+    private let probe: AckDispatchProbe
+
+    init(manager: SocketManagerSpec, nsp: String, probe: AckDispatchProbe) {
+        self.probe = probe
+        super.init(manager: manager, nsp: nsp)
+    }
+
+    override func connect(withPayload payload: [String: Any]?, timeoutAfter: Double, withHandler handler: (() -> ())?) {
+        probe.increment()
+        super.connect(withPayload: payload, timeoutAfter: timeoutAfter, withHandler: handler)
+    }
+}
+
+private final class RecordingDisconnectSocketIOClient: SocketIOClient {
+    private let emitDisconnectEvent: Bool
+
+    init(manager: SocketManagerSpec, nsp: String, emitDisconnectEvent: Bool) {
+        self.emitDisconnectEvent = emitDisconnectEvent
+        super.init(manager: manager, nsp: nsp)
+    }
+
+    override func disconnect() {
+        if emitDisconnectEvent {
+            super.disconnect()
+            return
+        }
+    }
+}
+
+private final class RecordingDisconnectProbeSocketIOClient: SocketIOClient {
+    private let probe: AckDispatchProbe
+
+    init(manager: SocketManagerSpec, nsp: String, probe: AckDispatchProbe) {
+        self.probe = probe
+        super.init(manager: manager, nsp: nsp)
+    }
+
+    override func disconnect() {
+        probe.increment()
+        super.disconnect()
     }
 }
 

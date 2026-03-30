@@ -36,6 +36,14 @@ public extension SocketIOClient {
         ///   - event: Event name that was emitted.
         ///   - timeout: Timeout used for waiting for the acknowledgement.
         case ackTimedOut(event: String, timeout: TimeInterval)
+        /// Connection attempt did not complete before timeout.
+        ///
+        /// - Parameter timeout: Timeout used for waiting for `.connect`.
+        case connectTimedOut(timeout: TimeInterval)
+        /// Disconnect attempt did not complete before timeout.
+        ///
+        /// - Parameter timeout: Timeout used for waiting for `.disconnect`.
+        case disconnectTimedOut(timeout: TimeInterval)
         /// The socket disconnected while listening for an event.
         ///
         /// - Parameters:

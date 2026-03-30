@@ -22,17 +22,19 @@ final class SocketAckContinuationState<Value>: @unchecked Sendable {
         return true
     }
 
-    // Intentionally execute while holding the lock to serialize against `cancel()`
-    // and preserve "no dispatch after early cancellation" semantics.
+    // Check dispatch eligibility under lock, then execute without lock.
+    // This avoids deadlocks when the dispatched call can synchronously invoke
+    // callbacks that consume the same continuation state.
     func withDispatchPermission(_ body: () -> Void) {
         lock.lock()
-        guard isCancelled == false, continuation != nil else {
-            lock.unlock()
+        let isAllowed = isCancelled == false && continuation != nil
+        lock.unlock()
+
+        guard isAllowed else {
             return
         }
 
         body()
-        lock.unlock()
     }
 
     func consume() -> AckContinuation? {

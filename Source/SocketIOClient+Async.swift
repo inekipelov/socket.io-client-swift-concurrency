@@ -2,6 +2,99 @@ import Foundation
 @preconcurrency import SocketIO
 
 public extension SocketIOClient {
+    /// Connects to the server and waits until the socket becomes connected.
+    ///
+    /// - Parameters:
+    ///   - payload: Optional payload sent on connect.
+    ///   - timeout: Timeout in seconds for waiting on `.connect`.
+    /// - Throws: `SocketIOClient.Error`.
+    @preconcurrency
+    func connect(
+        withPayload payload: [String: Any]? = nil,
+        timeout: TimeInterval
+    ) async throws(SocketIOClient.Error) {
+        guard status != .connected else {
+            return
+        }
+
+        let payloadBox = SocketConnectPayloadBox(payload)
+        let connectState = SocketSingleEventSubscriptionState()
+        let disconnectState = SocketSingleEventSubscriptionState()
+        let errorState = SocketSingleEventSubscriptionState()
+
+        try await executeClientOperation(
+            eventContext: SocketClientEvent.connect.rawValue,
+            timeout: timeout,
+            subscriptions: [
+                .init(event: .connect, state: connectState) { _ in
+                    .success(())
+                },
+                .init(event: .disconnect, state: disconnectState) { data in
+                    .failure(
+                        .disconnected(
+                            event: SocketClientEvent.connect.rawValue,
+                            reason: data.first as? String
+                        )
+                    )
+                },
+                .init(event: .error, state: errorState) { data in
+                    .failure(
+                        SocketIOClient.Error(
+                            clientEventPayload: data,
+                            fallbackEvent: SocketClientEvent.connect.rawValue
+                        )
+                    )
+                },
+            ]
+        ) { finish in
+            self.connect(withPayload: payloadBox.payload, timeoutAfter: timeout) {
+                finish(.failure(.connectTimedOut(timeout: timeout)))
+            }
+        }
+    }
+
+    /// Disconnects from the server and waits until the socket becomes disconnected.
+    ///
+    /// - Parameter timeout: Timeout in seconds for waiting on `.disconnect`.
+    /// - Throws: `SocketIOClient.Error`.
+    @preconcurrency
+    func disconnect(timeout: TimeInterval) async throws(SocketIOClient.Error) {
+        guard status != .disconnected else {
+            return
+        }
+
+        let disconnectState = SocketSingleEventSubscriptionState()
+        let statusChangeState = SocketSingleEventSubscriptionState()
+        let errorState = SocketSingleEventSubscriptionState()
+
+        try await executeClientOperation(
+            eventContext: SocketClientEvent.disconnect.rawValue,
+            timeout: timeout,
+            subscriptions: [
+                .init(event: .disconnect, state: disconnectState) { _ in
+                    .success(())
+                },
+                .init(event: .statusChange, state: statusChangeState) { data in
+                    Self.isDisconnectedStatusChange(data) ? .success(()) : nil
+                },
+                .init(event: .error, state: errorState) { data in
+                    .failure(
+                        SocketIOClient.Error(
+                            clientEventPayload: data,
+                            fallbackEvent: SocketClientEvent.disconnect.rawValue
+                        )
+                    )
+                },
+            ]
+        ) { finish in
+            self.disconnect()
+            let queue = self.manager?.handleQueue ?? DispatchQueue.main
+            queue.asyncAfter(deadline: .now() + timeout) {
+                finish(.failure(.disconnectTimedOut(timeout: timeout)))
+            }
+        }
+    }
+
     /// Subscribes to a Socket.IO event and exposes payloads as an async stream.
     ///
     /// The stream yields raw event payload arrays exactly as provided by `socket.io-client-swift`.
@@ -211,7 +304,102 @@ public extension SocketIOClient {
     }
 }
 
+private final class SocketConnectPayloadBox: @unchecked Sendable {
+    let payload: [String: Any]?
+
+    init(_ payload: [String: Any]?) {
+        self.payload = payload
+    }
+}
+
+private struct SocketClientOperationSubscription {
+    let event: SocketClientEvent
+    let state: SocketSingleEventSubscriptionState
+    let resolve: @Sendable ([Any]) -> Result<Void, SocketIOClient.Error>?
+}
+
 private extension SocketIOClient {
+    @preconcurrency
+    func executeClientOperation(
+        eventContext: String,
+        timeout: TimeInterval,
+        subscriptions: [SocketClientOperationSubscription],
+        start: @escaping @Sendable (_ finish: @escaping @Sendable (Result<Void, SocketIOClient.Error>) -> Void) -> Void
+    ) async throws(SocketIOClient.Error) {
+        guard timeout > 0 else {
+            throw SocketIOClient.Error.invalidTimeout(timeout)
+        }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw SocketIOClient.Error(thrown: error, event: eventContext)
+        }
+
+        let continuationState = SocketAckContinuationState<Void>()
+        let states = subscriptions.map(\.state)
+        let queue = manager?.handleQueue ?? DispatchQueue.main
+        let result: Result<Void, SocketIOClient.Error> = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard continuationState.register(continuation) else {
+                    return
+                }
+
+                queue.async {
+                    continuationState.withDispatchPermission {
+                        for subscription in subscriptions {
+                            self.registerClientEventHandler(subscription.event, into: subscription.state) { data in
+                                guard let result = subscription.resolve(data) else {
+                                    return
+                                }
+
+                                self.finishOnce(
+                                    using: continuationState,
+                                    states: states,
+                                    result: result
+                                )
+                            }
+                        }
+
+                        start { result in
+                            self.finishOnce(
+                                using: continuationState,
+                                states: states,
+                                result: result
+                            )
+                        }
+                    }
+                }
+            }
+        } onCancel: {
+            continuationState.cancel()
+            queue.async {
+                self.terminate(states: states)
+            }
+        }
+
+        _ = try result.get()
+    }
+
+    func finishOnce(
+        using continuationState: SocketAckContinuationState<Void>,
+        states: [SocketSingleEventSubscriptionState],
+        result: Result<Void, SocketIOClient.Error>
+    ) {
+        guard let continuation = continuationState.consume() else {
+            return
+        }
+
+        terminate(states: states)
+        continuation.resume(returning: result)
+    }
+
+    func terminate(states: [SocketSingleEventSubscriptionState]) {
+        for state in states {
+            state.terminate(on: self)
+        }
+    }
+
     @preconcurrency
     func registerOnHandleQueue(_ register: () -> Void) -> DispatchQueue {
         let queue = manager?.handleQueue ?? DispatchQueue.main
@@ -252,5 +440,28 @@ private extension SocketIOClient {
         }
 
         state.register(handlerID, on: self)
+    }
+
+    static func isDisconnectedStatusChange(_ data: [Any]) -> Bool {
+        guard let first = data.first else {
+            return false
+        }
+
+        if let status = first as? SocketIOStatus {
+            return status == .disconnected
+        }
+
+        if let raw = first as? Int {
+            return SocketIOStatus(rawValue: raw) == .disconnected
+        }
+
+        if
+            let number = first as? NSNumber,
+            CFGetTypeID(number) != CFBooleanGetTypeID()
+        {
+            return SocketIOStatus(rawValue: number.intValue) == .disconnected
+        }
+
+        return false
     }
 }
