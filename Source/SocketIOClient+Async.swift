@@ -18,14 +18,12 @@ public extension SocketIOClient {
         bufferingPolicy: SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error>.BufferingPolicy = .bufferingNewest(100)
     ) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error> {
         SocketIOClient.AsyncThrowingStream(bufferingPolicy: bufferingPolicy) { continuation in
-            let queue = self.manager?.handleQueue ?? DispatchQueue.main
-            let state = SocketEventSubscriptionState()
-            let queueKey = DispatchSpecificKey<UInt8>()
-            let queueValue: UInt8 = 1
-            queue.setSpecific(key: queueKey, value: queueValue)
+            let payloadState = SocketSingleEventSubscriptionState()
+            let disconnectState = SocketSingleEventSubscriptionState()
+            let errorState = SocketSingleEventSubscriptionState()
 
-            let registerHandlers = {
-                let eventID = self.on(event) { data, _ in
+            let queue = self.registerOnHandleQueue {
+                self.registerEventHandler(event, into: payloadState) { data in
                     do {
                         _ = continuation.yield(try SocketIOClient.Payload(socketValues: data))
                     } catch {
@@ -33,7 +31,7 @@ public extension SocketIOClient {
                     }
                 }
 
-                let disconnectID = self.on(clientEvent: .disconnect) { data, _ in
+                self.registerClientEventHandler(.disconnect, into: disconnectState) { data in
                     continuation.finish(
                         throwing: SocketIOClient.Error.disconnected(
                             event: event,
@@ -42,22 +40,50 @@ public extension SocketIOClient {
                     )
                 }
 
-                let errorID = self.on(clientEvent: .error) { data, _ in
+                self.registerClientEventHandler(.error, into: errorState) { data in
                     continuation.finish(
                         throwing: SocketIOClient.Error(clientEventPayload: data, fallbackEvent: event)
                     )
                 }
-
-                state.register(
-                    .init(event: eventID, disconnect: disconnectID, error: errorID),
-                    on: self
-                )
             }
 
-            if DispatchQueue.getSpecific(key: queueKey) == queueValue {
-                registerHandlers()
-            } else {
-                queue.sync(execute: registerHandlers)
+            continuation.onTermination { _ in
+                queue.async {
+                    payloadState.terminate(on: self)
+                    disconnectState.terminate(on: self)
+                    errorState.terminate(on: self)
+                }
+            }
+        }
+    }
+
+    /// Subscribes to a Socket.IO client event and exposes a type-driven payload stream.
+    ///
+    /// This mirrors the original callback-based `on(clientEvent:)` behavior:
+    /// it listens only to the selected client event and doesn't auto-finish
+    /// on `.disconnect` or `.error` unless those are the selected events.
+    ///
+    /// - Parameter event: Client event to subscribe to.
+    /// - Returns: A typed event stream of `SocketIOClient.ClientEventPayload` values.
+    @preconcurrency
+    func on(
+        clientEvent event: SocketClientEvent
+    ) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.ClientEventPayload, SocketIOClient.Error> {
+        SocketIOClient.AsyncThrowingStream(bufferingPolicy: .unbounded) { continuation in
+            let state = SocketSingleEventSubscriptionState()
+
+            let queue = self.registerOnHandleQueue {
+                self.registerClientEventHandler(event, into: state) { data in
+                    do {
+                        _ = continuation.yield(
+                            try SocketIOClient.ClientEventPayload(clientEvent: event, data: data)
+                        )
+                    } catch {
+                        continuation.finish(
+                            throwing: SocketIOClient.Error(thrown: error, event: event.rawValue)
+                        )
+                    }
+                }
             }
 
             continuation.onTermination { _ in
@@ -182,5 +208,49 @@ public extension SocketIOClient {
         }
 
         return try result.get()
+    }
+}
+
+private extension SocketIOClient {
+    @preconcurrency
+    func registerOnHandleQueue(_ register: () -> Void) -> DispatchQueue {
+        let queue = manager?.handleQueue ?? DispatchQueue.main
+        let queueKey = DispatchSpecificKey<UInt8>()
+        let queueValue: UInt8 = 1
+        queue.setSpecific(key: queueKey, value: queueValue)
+
+        if DispatchQueue.getSpecific(key: queueKey) == queueValue {
+            register()
+        } else {
+            queue.sync(execute: register)
+        }
+
+        return queue
+    }
+
+    @preconcurrency
+    func registerEventHandler(
+        _ event: String,
+        into state: SocketSingleEventSubscriptionState,
+        callback: @escaping ([Any]) -> Void
+    ) {
+        let handlerID = on(event) { data, _ in
+            callback(data)
+        }
+
+        state.register(handlerID, on: self)
+    }
+
+    @preconcurrency
+    func registerClientEventHandler(
+        _ event: SocketClientEvent,
+        into state: SocketSingleEventSubscriptionState,
+        callback: @escaping ([Any]) -> Void
+    ) {
+        let handlerID = on(clientEvent: event) { data, _ in
+            callback(data)
+        }
+
+        state.register(handlerID, on: self)
     }
 }

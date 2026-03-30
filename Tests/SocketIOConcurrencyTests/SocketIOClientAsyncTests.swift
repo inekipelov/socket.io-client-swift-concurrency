@@ -266,6 +266,103 @@ struct SocketIOClientAsyncTests {
         #expect(source == .engine)
     }
 
+    @Test("on(clientEvent:) maps statusChange to SocketIOStatus")
+    func onClientEventStatusChange() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .statusChange)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.statusChange, data: [SocketIOStatus.connected, SocketIOStatus.connected.rawValue])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .statusChange(.connected))
+    }
+
+    @Test("on(clientEvent:) maps error payload to normalized SocketIOClient.Error")
+    func onClientEventError() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .error)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.error, data: ["Tried emitting when not connected"])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .error(.notConnected(event: SocketClientEvent.error.rawValue)))
+    }
+
+    @Test("on(clientEvent:) maps disconnect reason")
+    func onClientEventDisconnect() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .disconnect)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.disconnect, data: ["Server closed"])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .disconnect(reason: "Server closed"))
+    }
+
+    @Test("on(clientEvent:) maps ping and pong")
+    func onClientEventPingPong() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+
+        let pingStream = socket.on(clientEvent: .ping)
+        var pingIterator = pingStream.makeAsyncIterator()
+        socket.handleClientEvent(.ping, data: [])
+        #expect(try await pingIterator.next() == .ping)
+
+        let pongStream = socket.on(clientEvent: .pong)
+        var pongIterator = pongStream.makeAsyncIterator()
+        socket.handleClientEvent(.pong, data: [])
+        #expect(try await pongIterator.next() == .pong)
+    }
+
+    @Test("on(clientEvent:) invalid payload throws typed invalidSocketData")
+    func onClientEventInvalidPayload() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .statusChange)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.statusChange, data: ["invalid"])
+
+        do {
+            _ = try await iterator.next()
+            Issue.record("Expected stream error")
+        } catch let error {
+            guard case .invalidSocketData(let event, _) = error else {
+                Issue.record("Expected .invalidSocketData, got \(error)")
+                return
+            }
+
+            #expect(event == SocketClientEvent.statusChange.rawValue)
+        }
+    }
+
+    @Test("on(clientEvent:) unsubscribes one handler on cancellation")
+    func onClientEventUnsubscribesOnCancel() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let queue = manager.handleQueue
+
+        let initialCount = await handlersCount(socket: socket, queue: queue)
+        var stream: SocketIOClient.AsyncThrowingStream<SocketIOClient.ClientEventPayload, SocketIOClient.Error>? =
+            socket.on(clientEvent: .ping)
+        let registeredCount = await handlersCount(socket: socket, queue: queue)
+        #expect(registeredCount == initialCount + 1)
+
+        _ = stream
+        stream = nil
+
+        await drain(queue: queue)
+        let finalCount = await handlersCount(socket: socket, queue: queue)
+        #expect(finalCount == initialCount)
+    }
+
     private func makeManager() -> SocketManager {
         SocketManager(
             socketURL: URL(string: "http://127.0.0.1:39091")!,

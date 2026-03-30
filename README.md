@@ -54,6 +54,7 @@ socket.disconnect()
 Public async extension surface:
 
 - `on(_ event: String) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error>`
+- `on(clientEvent event: SocketClientEvent) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.ClientEventPayload, SocketIOClient.Error>`
 - `emit(_ event: String, _ items: SocketData...) async`
 - `emit(_ event: String, with items: [SocketData]) async`
 - `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws(SocketIOClient.Error) -> SocketIOClient.Payload`
@@ -69,6 +70,18 @@ Public async extension surface:
 - `.data(Data)`
 - `.array([SocketIOClient.Payload])`
 - `.object([String: SocketIOClient.Payload])`
+
+`SocketIOClient.ClientEventPayload` cases:
+
+- `.connect(namespace: String, payload: SocketIOClient.Payload?)`
+- `.disconnect(reason: String?)`
+- `.error(SocketIOClient.Error)`
+- `.ping`
+- `.pong`
+- `.reconnect(reason: String?)`
+- `.reconnectAttempt(remaining: Int?)`
+- `.statusChange(SocketIOStatus)`
+- `.websocketUpgrade(headers: [String: String])`
 
 All throwable paths are normalized to `SocketIOClient.Error`.
 
