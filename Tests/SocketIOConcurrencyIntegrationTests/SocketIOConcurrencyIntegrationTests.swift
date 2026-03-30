@@ -39,7 +39,7 @@ struct SocketIOConcurrencyIntegrationTests {
             #expect(ack == .array([.string("pong"), .int(42)]))
 
             let eventPayload = try #require(try await iterator.next())
-            #expect(eventPayload == .array([.string("hello")]))
+            #expect(eventPayload == .string("hello"))
 
             await server.stop()
         } catch {

@@ -97,7 +97,9 @@ public extension SocketIOClient {
 
     /// Subscribes to a Socket.IO event and exposes payloads as an async stream.
     ///
-    /// The stream yields raw event payload arrays exactly as provided by `socket.io-client-swift`.
+    /// Event payloads are mapped into `SocketIOClient.Payload`.
+    /// If an event has exactly one argument, the stream yields that argument directly.
+    /// Otherwise, the stream yields `.array([...])`.
     /// Handlers are removed automatically when the stream terminates.
     ///
     /// The stream finishes with `SocketIOClient.Error` when the socket emits `.disconnect` or `.error`.

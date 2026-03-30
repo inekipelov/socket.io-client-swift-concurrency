@@ -185,6 +185,20 @@ struct SocketIOClientAsyncTests {
         #expect(payload == .array([.string("ok"), .int(1)]))
     }
 
+    @Test("on unwraps single event argument")
+    func onUnwrapsSingleEventArgument() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+
+        let stream = socket.on("single")
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleEvent("single", data: ["hello"], isInternalMessage: true)
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .string("hello"))
+    }
+
     @Test("on unsubscribes handlers on cancellation")
     func onUnsubscribesOnCancel() async throws {
         let manager = makeManager()
@@ -215,6 +229,19 @@ struct SocketIOClientAsyncTests {
         #expect(socket.lastEmittedItems.count == 2)
         #expect(socket.lastEmittedItems[0] as? String == "one")
         #expect(socket.lastEmittedItems[1] as? Int == 2)
+    }
+
+    @Test("emit accepts SocketIOClient.Payload directly")
+    func emitAcceptsPayload() async {
+        let manager = makeManager()
+        let socket = RecordingSocketIOClient(manager: manager, nsp: "/")
+        let payload: SocketIOClient.Payload = ["message": "hi", "attempt": 1, "ok": true]
+
+        await socket.emit("message:send", payload)
+
+        #expect(socket.lastEmittedEvent == "message:send")
+        #expect(socket.lastEmittedItems.count == 1)
+        #expect(socket.lastEmittedItems[0] as? SocketIOClient.Payload == payload)
     }
 
     @Test("emitWithAck returns ack payload")
@@ -391,6 +418,96 @@ struct SocketIOClientAsyncTests {
                 .object(["key": .string("value")]),
             ])
         )
+    }
+
+    @Test("SocketIOClient.Payload supports primitive literals")
+    func payloadPrimitiveLiterals() {
+        let stringPayload: SocketIOClient.Payload = "hello"
+        let intPayload: SocketIOClient.Payload = 42
+        let doublePayload: SocketIOClient.Payload = 3.14
+        let boolPayload: SocketIOClient.Payload = true
+        let nullPayload: SocketIOClient.Payload = nil
+
+        #expect(stringPayload == .string("hello"))
+        #expect(intPayload == .int(42))
+        #expect(doublePayload == .double(3.14))
+        #expect(boolPayload == .bool(true))
+        #expect(nullPayload == .null)
+    }
+
+    @Test("SocketIOClient.Payload supports array and object literals")
+    func payloadCollectionLiterals() {
+        let arrayPayload: SocketIOClient.Payload = ["hi", 1, false, nil]
+        #expect(
+            arrayPayload == .array([
+                .string("hi"),
+                .int(1),
+                .bool(false),
+                .null,
+            ])
+        )
+
+        let objectPayload: SocketIOClient.Payload = [
+            "message": "hi",
+            "attempt": 1,
+            "ok": true,
+            "meta": ["v1", 2],
+        ]
+        #expect(
+            objectPayload == .object([
+                "message": .string("hi"),
+                "attempt": .int(1),
+                "ok": .bool(true),
+                "meta": .array([.string("v1"), .int(2)]),
+            ])
+        )
+    }
+
+    @Test("SocketIOClient.Payload converts to SocketData recursively")
+    func payloadSocketDataConversion() throws {
+        let binary = Data([0xAA, 0xBB])
+        let payload: SocketIOClient.Payload = [
+            "message": "hi",
+            "attempt": 1,
+            "ratio": 0.5,
+            "ok": true,
+            "blob": .data(binary),
+            "none": nil,
+            "nested": [
+                "items": [1, 2, 3],
+                "state": "ready",
+            ],
+        ]
+
+        let socketData = try payload.socketRepresentation()
+        let object = try #require(socketData as? [String: Any])
+
+        #expect(object["message"] as? String == "hi")
+        #expect(object["attempt"] as? Int == 1)
+        #expect(object["ratio"] as? Double == 0.5)
+        #expect(object["ok"] as? Bool == true)
+        #expect(object["blob"] as? Data == binary)
+        #expect(object["none"] is NSNull)
+
+        let nested = try #require(object["nested"] as? [String: Any])
+        let items = try #require(nested["items"] as? [Any])
+        #expect(items.count == 3)
+        #expect(items[0] as? Int == 1)
+        #expect(items[1] as? Int == 2)
+        #expect(items[2] as? Int == 3)
+        #expect(nested["state"] as? String == "ready")
+    }
+
+    @Test("SocketIOClient.Payload.init(socketValues:) unwraps single element")
+    func payloadInitSocketValuesSingleElementUnwrap() throws {
+        let payload = try SocketIOClient.Payload(socketValues: ["hello"])
+        #expect(payload == .string("hello"))
+
+        let empty = try SocketIOClient.Payload(socketValues: [])
+        #expect(empty == .array([]))
+
+        let many = try SocketIOClient.Payload(socketValues: ["hi", 1])
+        #expect(many == .array([.string("hi"), .int(1)]))
     }
 
     @Test("on maps unsupported dictionary key type to typed SocketIOClient.Error")

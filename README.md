@@ -43,6 +43,19 @@ print("ack:", ack)
 incomingTask.cancel()
 ```
 
+Literal-friendly payloads can be sent directly:
+
+```swift
+let payload: SocketIOClient.Payload = [
+    "message": "hi",
+    "attempt": 1,
+    "ok": true,
+]
+
+await socket.emit("message:send", payload)
+let ack = try await socket.emitWithAck("message:confirm", payload)
+```
+
 Public async extension surface:
 
 | Method | Description |

@@ -27,63 +27,118 @@ public extension SocketIOClient {
     }
 }
 
+extension SocketIOClient.Payload: SocketData {
+    public func socketRepresentation() throws -> SocketData {
+        SocketIOPayloadConverter.encode(payload: self)
+    }
+}
+
+extension SocketIOClient.Payload: ExpressibleByStringLiteral {
+    public init(stringLiteral value: StringLiteralType) {
+        self = .string(value)
+    }
+}
+
+extension SocketIOClient.Payload: ExpressibleByIntegerLiteral {
+    public init(integerLiteral value: IntegerLiteralType) {
+        self = .int(value)
+    }
+}
+
+extension SocketIOClient.Payload: ExpressibleByFloatLiteral {
+    public init(floatLiteral value: FloatLiteralType) {
+        self = .double(value)
+    }
+}
+
+extension SocketIOClient.Payload: ExpressibleByBooleanLiteral {
+    public init(booleanLiteral value: BooleanLiteralType) {
+        self = .bool(value)
+    }
+}
+
+extension SocketIOClient.Payload: ExpressibleByNilLiteral {
+    public init(nilLiteral: ()) {
+        self = .null
+    }
+}
+
+extension SocketIOClient.Payload: ExpressibleByArrayLiteral {
+    public init(arrayLiteral elements: SocketIOClient.Payload...) {
+        self = .array(elements)
+    }
+}
+
+extension SocketIOClient.Payload: ExpressibleByDictionaryLiteral {
+    public init(dictionaryLiteral elements: (String, SocketIOClient.Payload)...) {
+        self = .object(Dictionary(uniqueKeysWithValues: elements))
+    }
+}
+
 extension SocketIOClient.Payload {
     init(socketValues values: [Any]) throws(SocketIOClient.Error) {
+        self = try SocketIOPayloadConverter.decode(socketValues: values)
+    }
+
+    init(socketValue value: Any) throws(SocketIOClient.Error) {
+        self = try SocketIOPayloadConverter.decode(socketValue: value)
+    }
+}
+
+private enum SocketIOPayloadConverter {
+    static func decode(socketValues values: [Any]) throws(SocketIOClient.Error) -> SocketIOClient.Payload {
+        if values.count == 1, let value = values.first {
+            return try decode(socketValue: value)
+        }
+
         var payloads: [SocketIOClient.Payload] = []
         payloads.reserveCapacity(values.count)
 
         for value in values {
-            payloads.append(try SocketIOClient.Payload(socketValue: value))
+            payloads.append(try decode(socketValue: value))
         }
 
-        self = .array(payloads)
+        return .array(payloads)
     }
 
-    init(socketValue value: Any) throws(SocketIOClient.Error) {
+    static func decode(socketValue value: Any) throws(SocketIOClient.Error) -> SocketIOClient.Payload {
         switch value {
         case let value as SocketIOClient.Payload:
-            self = value
+            return value
         case let value as String:
-            self = .string(value)
+            return .string(value)
         case let value as Int:
-            self = .int(value)
+            return .int(value)
         case let value as Double:
-            self = .double(value)
+            return .double(value)
         case let value as Bool:
-            self = .bool(value)
+            return .bool(value)
         case let value as NSNumber:
-            self = Self.numberPayload(from: value)
+            return decode(number: value)
         case let value as Data:
-            self = .data(value)
+            return .data(value)
         case is NSNull:
-            self = .null
+            return .null
         case let value as [Any]:
-            var payloads: [SocketIOClient.Payload] = []
-            payloads.reserveCapacity(value.count)
-
-            for item in value {
-                payloads.append(try SocketIOClient.Payload(socketValue: item))
-            }
-
-            self = .array(payloads)
+            return try decode(socketValues: value)
         case let value as [String: Any]:
             var object: [String: SocketIOClient.Payload] = [:]
             object.reserveCapacity(value.count)
 
             for (key, item) in value {
-                object[key] = try SocketIOClient.Payload(socketValue: item)
+                object[key] = try decode(socketValue: item)
             }
 
-            self = .object(object)
+            return .object(object)
         case let value as NSArray:
             var payloads: [SocketIOClient.Payload] = []
             payloads.reserveCapacity(value.count)
 
             for item in value {
-                payloads.append(try SocketIOClient.Payload(socketValue: item))
+                payloads.append(try decode(socketValue: item))
             }
 
-            self = .array(payloads)
+            return .array(payloads)
         case let value as NSDictionary:
             var object: [String: SocketIOClient.Payload] = [:]
             object.reserveCapacity(value.count)
@@ -95,16 +150,49 @@ extension SocketIOClient.Payload {
                     )
                 }
 
-                object[key] = try SocketIOClient.Payload(socketValue: item)
+                object[key] = try decode(socketValue: item)
             }
 
-            self = .object(object)
+            return .object(object)
         default:
             throw SocketIOClient.Error.unsupportedPayloadType(typeName: String(describing: type(of: value)))
         }
     }
 
-    private static func numberPayload(from number: NSNumber) -> SocketIOClient.Payload {
+    static func encode(payload: SocketIOClient.Payload) -> SocketData {
+        switch payload {
+        case let .string(value):
+            return value
+        case let .int(value):
+            return value
+        case let .double(value):
+            return value
+        case let .bool(value):
+            return value
+        case .null:
+            return NSNull()
+        case let .data(value):
+            return value
+        case let .array(values):
+            var mapped: [Any] = []
+            mapped.reserveCapacity(values.count)
+            for value in values {
+                mapped.append(encodeAny(payload: value))
+            }
+
+            return mapped
+        case let .object(values):
+            var mapped: [String: Any] = [:]
+            mapped.reserveCapacity(values.count)
+            for (key, value) in values {
+                mapped[key] = encodeAny(payload: value)
+            }
+
+            return mapped
+        }
+    }
+
+    private static func decode(number: NSNumber) -> SocketIOClient.Payload {
         if CFGetTypeID(number) == CFBooleanGetTypeID() {
             return .bool(number.boolValue)
         }
@@ -119,5 +207,38 @@ extension SocketIOClient.Payload {
         }
 
         return .double(number.doubleValue)
+    }
+
+    private static func encodeAny(payload: SocketIOClient.Payload) -> Any {
+        switch payload {
+        case let .string(value):
+            return value
+        case let .int(value):
+            return value
+        case let .double(value):
+            return value
+        case let .bool(value):
+            return value
+        case .null:
+            return NSNull()
+        case let .data(value):
+            return value
+        case let .array(values):
+            var mapped: [Any] = []
+            mapped.reserveCapacity(values.count)
+            for value in values {
+                mapped.append(encodeAny(payload: value))
+            }
+
+            return mapped
+        case let .object(values):
+            var mapped: [String: Any] = [:]
+            mapped.reserveCapacity(values.count)
+            for (key, value) in values {
+                mapped[key] = encodeAny(payload: value)
+            }
+
+            return mapped
+        }
     }
 }
