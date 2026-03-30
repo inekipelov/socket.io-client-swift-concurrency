@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "SocketIOConcurrency",
+    name: "socket.io-client-swift-concurrency",
     platforms: [
         .iOS(.v13),
         .macOS(.v10_15),
