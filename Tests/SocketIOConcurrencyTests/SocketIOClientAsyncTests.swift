@@ -561,6 +561,19 @@ struct SocketIOClientAsyncTests {
         #expect(payload == .statusChange(.connected))
     }
 
+    @Test("onStatusChange maps statusChange to SocketIOStatus")
+    func onStatusChangeMapsStatus() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.onStatusChange()
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.statusChange, data: [SocketIOStatus.connected, SocketIOStatus.connected.rawValue])
+
+        let status = try #require(try await iterator.next())
+        #expect(status == .connected)
+    }
+
     @Test("on(clientEvent:) maps error payload to normalized SocketIOClient.Error")
     func onClientEventError() async throws {
         let manager = makeManager()
@@ -584,7 +597,33 @@ struct SocketIOClientAsyncTests {
         socket.handleClientEvent(.disconnect, data: ["Server closed"])
 
         let payload = try #require(try await iterator.next())
-        #expect(payload == .disconnect(reason: "Server closed"))
+        #expect(payload == .disconnect(reason: .unknown("Server closed")))
+    }
+
+    @Test("on(clientEvent:) maps known disconnect reason")
+    func onClientEventDisconnectKnownReason() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .disconnect)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.disconnect, data: ["Ping timeout"])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .disconnect(reason: .pingTimeout))
+    }
+
+    @Test("on(clientEvent:) maps missing disconnect reason to none")
+    func onClientEventDisconnectNoneReason() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .disconnect)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.disconnect, data: [])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .disconnect(reason: .none))
     }
 
     @Test("on(clientEvent:) maps connect without payload")
@@ -597,7 +636,7 @@ struct SocketIOClientAsyncTests {
         socket.handleClientEvent(.connect, data: ["/chat"])
 
         let payload = try #require(try await iterator.next())
-        #expect(payload == .connect(namespace: "/chat"))
+        #expect(payload == .connect)
     }
 
     @Test("on(clientEvent:) maps connect with payload")
@@ -611,10 +650,7 @@ struct SocketIOClientAsyncTests {
 
         let payload = try #require(try await iterator.next())
         #expect(
-            payload == .connectWithPayload(
-                namespace: "/chat",
-                payload: .object(["sid": .string("abc")])
-            )
+            payload == .connectWithPayload(payload: .object(["sid": .string("abc")]))
         )
     }
 

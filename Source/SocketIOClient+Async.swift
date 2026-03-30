@@ -33,7 +33,7 @@ public extension SocketIOClient {
                     .failure(
                         .disconnected(
                             event: SocketClientEvent.connect.rawValue,
-                            reason: data.first as? String
+                            reason: SocketIOClient.DisconnectReason(rawReason: data.first as? String)
                         )
                     )
                 },
@@ -130,7 +130,7 @@ public extension SocketIOClient {
                     continuation.finish(
                         throwing: SocketIOClient.Error.disconnected(
                             event: event,
-                            reason: data.first as? String
+                            reason: SocketIOClient.DisconnectReason(rawReason: data.first as? String)
                         )
                     )
                 }
@@ -164,29 +164,38 @@ public extension SocketIOClient {
     func on(
         clientEvent event: SocketClientEvent
     ) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.ClientEventPayload, SocketIOClient.Error> {
-        SocketIOClient.AsyncThrowingStream(bufferingPolicy: .unbounded) { continuation in
-            let state = SocketSingleEventSubscriptionState()
-
-            let queue = self.registerOnHandleQueue {
-                self.registerClientEventHandler(event, into: state) { data in
-                    do {
-                        _ = continuation.yield(
-                            try SocketIOClient.ClientEventPayload(clientEvent: event, data: data)
-                        )
-                    } catch {
-                        continuation.finish(
-                            throwing: SocketIOClient.Error(thrown: error, event: event.rawValue)
-                        )
-                    }
-                }
+        streamForClientEvent(
+            event,
+            bufferingPolicy: .unbounded,
+            transform: { data throws(SocketIOClient.Error) -> SocketIOClient.ClientEventPayload in
+                try SocketIOClient.ClientEventPayload(clientEvent: event, data: data)
             }
+        )
+    }
 
-            continuation.onTermination { _ in
-                queue.async {
-                    state.terminate(on: self)
+    /// Subscribes to `.statusChange` client events and yields only `SocketIOStatus`.
+    ///
+    /// This is a convenience wrapper over `on(clientEvent: .statusChange)` with
+    /// strongly typed status values in the success path.
+    ///
+    /// - Returns: A typed event stream of `SocketIOStatus` values.
+    @preconcurrency
+    func onStatusChange() -> SocketIOClient.AsyncThrowingStream<SocketIOStatus, SocketIOClient.Error> {
+        streamForClientEvent(
+            .statusChange,
+            bufferingPolicy: .unbounded,
+            transform: { data throws(SocketIOClient.Error) -> SocketIOStatus in
+                let payload = try SocketIOClient.ClientEventPayload(clientEvent: .statusChange, data: data)
+                guard case let .statusChange(status) = payload else {
+                    throw SocketIOClient.Error.invalidSocketData(
+                        event: SocketClientEvent.statusChange.rawValue,
+                        message: "Invalid statusChange payload: \(data)"
+                    )
                 }
+
+                return status
             }
-        }
+        )
     }
 
     /// Emits an event with variadic payload items and awaits write completion.
@@ -321,6 +330,34 @@ private struct SocketClientOperationSubscription {
 }
 
 private extension SocketIOClient {
+    func streamForClientEvent<T: Sendable>(
+        _ event: SocketClientEvent,
+        bufferingPolicy: SocketIOClient.AsyncThrowingStream<T, SocketIOClient.Error>.BufferingPolicy,
+        transform: @escaping @Sendable ([Any]) throws(SocketIOClient.Error) -> T
+    ) -> SocketIOClient.AsyncThrowingStream<T, SocketIOClient.Error> {
+        SocketIOClient.AsyncThrowingStream(bufferingPolicy: bufferingPolicy) { continuation in
+            let state = SocketSingleEventSubscriptionState()
+
+            let queue = self.registerOnHandleQueue {
+                self.registerClientEventHandler(event, into: state) { data in
+                    do {
+                        _ = continuation.yield(try transform(data))
+                    } catch {
+                        continuation.finish(
+                            throwing: SocketIOClient.Error(thrown: error, event: event.rawValue)
+                        )
+                    }
+                }
+            }
+
+            continuation.onTermination { _ in
+                queue.async {
+                    state.terminate(on: self)
+                }
+            }
+        }
+    }
+
     @preconcurrency
     func executeClientOperation(
         eventContext: String,

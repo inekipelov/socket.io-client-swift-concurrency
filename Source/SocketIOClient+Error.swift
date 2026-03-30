@@ -48,8 +48,8 @@ public extension SocketIOClient {
         ///
         /// - Parameters:
         ///   - event: Event stream that was active.
-        ///   - reason: Optional disconnect reason from the underlying client.
-        case disconnected(event: String, reason: String?)
+        ///   - reason: Typed disconnect reason from the underlying client.
+        case disconnected(event: String, reason: SocketIOClient.DisconnectReason)
         /// A normalized client error with classified source and message.
         ///
         /// - Parameters:

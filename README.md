@@ -62,6 +62,7 @@ Public async extension surface:
 | --- | --- |
 | `on(_ event: String) -> AsyncThrowingStream<Payload, Error>` | Subscribes to a regular socket event and gives you a typed async stream with automatic handler cleanup. |
 | `on(clientEvent event: SocketClientEvent) -> AsyncThrowingStream<ClientEventPayload, Error>` | Subscribes to Socket.IO lifecycle/client events (`connect`, `disconnect`, `error`, etc.) with structured payload mapping. |
+| `onStatusChange() -> AsyncThrowingStream<SocketIOStatus, Error>` | Convenience stream for `.statusChange` events that yields only `SocketIOStatus` values. |
 | `connect(withPayload payload: [String: Any]? = nil, timeout: TimeInterval = 5) async throws(Error)` | Connects and suspends until the socket is actually connected; throws typed timeout/cancel/error cases. |
 | `disconnect(timeout: TimeInterval = 5) async throws(Error)` | Disconnects and waits for confirmed disconnection (including status fallback), with typed timeout/cancel handling. |
 | `emit(_ event: String, _ items: SocketData...) async` | Emits an event and awaits write completion using variadic payload arguments. |
@@ -82,9 +83,9 @@ Public async extension surface:
 
 `SocketIOClient.ClientEventPayload` cases:
 
-- `.connect(namespace: String)`
-- `.connectWithPayload(namespace: String, payload: SocketIOClient.Payload)`
-- `.disconnect(reason: String?)`
+- `.connect`
+- `.connectWithPayload(payload: SocketIOClient.Payload)`
+- `.disconnect(reason: SocketIOClient.DisconnectReason)`
 - `.error(SocketIOClient.Error)`
 - `.ping`
 - `.pong`
@@ -92,6 +93,10 @@ Public async extension surface:
 - `.reconnectAttempt(remaining: Int?)`
 - `.statusChange(SocketIOStatus)`
 - `.websocketUpgrade(headers: [String: String])`
+
+`SocketIOClient.DisconnectReason` includes known cases (`pingTimeout`,
+`namespaceLeave`, `gotDisconnect`, `manualDisconnect`, `reconnectFailed`,
+`socketDisconnected`, etc.), plus `.none` and lossless `.unknown(String)`.
 
 All throwable paths are normalized to `SocketIOClient.Error`.
 
@@ -105,7 +110,7 @@ All throwable paths are normalized to `SocketIOClient.Error`.
 - `ackTimedOut(event: String, timeout: TimeInterval)`
 - `connectTimedOut(timeout: TimeInterval)`
 - `disconnectTimedOut(timeout: TimeInterval)`
-- `disconnected(event: String, reason: String?)`
+- `disconnected(event: String, reason: SocketIOClient.DisconnectReason)`
 - `clientError(event: String?, message: String, source: SocketIOClient.Error.Source)`
 - `invalidSocketData(event: String?, message: String)`
 - `unsupportedPayloadType(typeName: String)`
@@ -118,7 +123,7 @@ Mapping from original `socket.io-client-swift` signals:
 | `.error` payload `[eventName, items, error]` | `invalidSocketData(...)` or `clientError(...)` |
 | `.error` payload `["Tried emitting when not connected"]` | `notConnected(event:)` |
 | ack payload `"NO ACK"` | `ackTimedOut(event:timeout:)` |
-| `.disconnect` client event | `disconnected(event:reason:)` |
+| `.disconnect` client event | `disconnected(event:reason:)` with typed `DisconnectReason` |
 
 ## Installation
 

@@ -3,9 +3,9 @@ import Foundation
 
 public extension SocketIOClient {
     enum ClientEventPayload: Sendable, Equatable {
-        case connect(namespace: String)
-        case connectWithPayload(namespace: String, payload: SocketIOClient.Payload)
-        case disconnect(reason: String?)
+        case connect
+        case connectWithPayload(payload: SocketIOClient.Payload)
+        case disconnect(reason: SocketIOClient.DisconnectReason)
         case error(SocketIOClient.Error)
         case ping
         case pong
@@ -20,21 +20,24 @@ extension SocketIOClient.ClientEventPayload {
     init(clientEvent event: SocketClientEvent, data: [Any]) throws(SocketIOClient.Error) {
         switch event {
         case .connect:
-            guard (1...2).contains(data.count), let namespace = data[0] as? String else {
+            guard (1...2).contains(data.count), data[0] as? String != nil else {
                 throw Self.invalidData(event: event, data: data, expected: "[namespace] or [namespace, payload]")
             }
 
             if data.count == 1 {
-                self = .connect(namespace: namespace)
+                self = .connect
                 return
             }
 
             self = .connectWithPayload(
-                namespace: namespace,
                 payload: try SocketIOClient.Payload(socketValue: data[1])
             )
         case .disconnect:
-            self = .disconnect(reason: try Self.optionalString(from: data, event: event, expected: "[reason?]"))
+            self = .disconnect(
+                reason: SocketIOClient.DisconnectReason(
+                    rawReason: try Self.optionalString(from: data, event: event, expected: "[reason?]")
+                )
+            )
         case .error:
             self = .error(SocketIOClient.Error(clientEventPayload: data, fallbackEvent: event.rawValue))
         case .ping:
