@@ -4,7 +4,7 @@
 APIs to `socket.io-client-swift` via a thin `SocketIOClient` extension.
 
 The API keeps original Socket.IO naming (`on`, `emit`, `emitWithAck`) and adds
-concurrency semantics through `AsyncThrowingStream`, `async`, and `async throws`.
+concurrency semantics through `SocketIOClient.AsyncThrowingStream`, `async`, and typed throws.
 
 <p align="center">
   <a href="https://swift.org"><img src="https://img.shields.io/badge/Swift-6.1-F05138?logo=swift&logoColor=white" alt="Swift 6.1"></a>
@@ -29,12 +29,19 @@ let socket = manager.defaultSocket
 socket.connect()
 
 let ack = try await socket.emitWithAck("ping", "hello", timeout: 3.0)
-print(ack)
+switch ack {
+case .array(let values):
+    print(values)
+case .string, .int, .double, .bool, .null, .data, .object:
+    break
+}
 
-let stream = socket.on("pongEvent")
+let stream: SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error> = socket.on("pongEvent")
 let task = Task {
     for try await payload in stream {
-        print(payload)
+        if case let .array(values) = payload {
+            print(values)
+        }
     }
 }
 
@@ -46,31 +53,42 @@ socket.disconnect()
 
 Public async extension surface:
 
-- `on(_ event: String) -> AsyncThrowingStream<[any Sendable], Error>`
+- `on(_ event: String) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error>`
 - `emit(_ event: String, _ items: SocketData...) async`
 - `emit(_ event: String, with items: [SocketData]) async`
-- `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws -> [any Sendable]`
-- `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws -> [any Sendable]`
+- `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws(SocketIOClient.Error) -> SocketIOClient.Payload`
+- `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws(SocketIOClient.Error) -> SocketIOClient.Payload`
 
-All throwable paths are normalized to `SocketIOError`.
+`SocketIOClient.Payload` cases:
+
+- `.string(String)`
+- `.int(Int)`
+- `.double(Double)`
+- `.bool(Bool)`
+- `.null`
+- `.data(Data)`
+- `.array([SocketIOClient.Payload])`
+- `.object([String: SocketIOClient.Payload])`
+
+All throwable paths are normalized to `SocketIOClient.Error`.
 
 ## Error Contract
 
-`SocketIOError` is the single public error type for this package:
+`SocketIOClient.Error` is the single public error type for this package:
 
 - `cancelled`
 - `invalidTimeout(TimeInterval)`
 - `notConnected(event: String)`
 - `ackTimedOut(event: String, timeout: TimeInterval)`
 - `disconnected(event: String, reason: String?)`
-- `clientError(event: String?, message: String, source: SocketIOError.Source)`
+- `clientError(event: String?, message: String, source: SocketIOClient.Error.Source)`
 - `invalidSocketData(event: String?, message: String)`
 - `unsupportedPayloadType(typeName: String)`
 - `unsupportedDictionaryKeyType(typeName: String)`
 
 Mapping from original `socket.io-client-swift` signals:
 
-| Original signal | `SocketIOError` |
+| Original signal | `SocketIOClient.Error` |
 | --- | --- |
 | `.error` payload `[eventName, items, error]` | `invalidSocketData(...)` or `clientError(...)` |
 | `.error` payload `["Tried emitting when not connected"]` | `notConnected(event:)` |

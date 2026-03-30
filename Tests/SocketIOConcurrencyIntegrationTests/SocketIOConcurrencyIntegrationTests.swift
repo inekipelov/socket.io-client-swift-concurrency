@@ -36,13 +36,10 @@ struct SocketIOConcurrencyIntegrationTests {
             var iterator = stream.makeAsyncIterator()
 
             let ack = try await socket.emitWithAck("ping", "hello", timeout: 3.0)
-            #expect(ack.count == 2)
-            #expect(ack[0] as? String == "pong")
-            #expect(ack[1] as? Int == 42)
+            #expect(ack == .array([.string("pong"), .int(42)]))
 
-            let eventData = try #require(try await iterator.next())
-            #expect(eventData.count == 1)
-            #expect(eventData[0] as? String == "hello")
+            let eventPayload = try #require(try await iterator.next())
+            #expect(eventPayload == .array([.string("hello")]))
 
             await server.stop()
         } catch {
