@@ -37,6 +37,15 @@ public extension SocketIOClient {
         /// Upstream literal: `"manual reconnect"`.
         /// Source: https://github.com/socketio/socket.io-client-swift/blob/42da871d9369f290d6ec4930636c40672143905b/Source/SocketIO/Manager/SocketManager.swift#L470
         case manualReconnect
+        /// Upstream literal: `"Error parsing open packet"`.
+        /// Source: https://github.com/socketio/socket.io-client-swift/blob/42da871d9369f290d6ec4930636c40672143905b/Source/SocketIO/Engine/SocketEngine.swift#L424
+        case openPacketParsingFailed
+        /// Upstream literal: `"Open packet contained no sid"`.
+        /// Source: https://github.com/socketio/socket.io-client-swift/blob/42da871d9369f290d6ec4930636c40672143905b/Source/SocketIO/Engine/SocketEngine.swift#L430
+        case openPacketMissingSID
+        /// Upstream literal: `"Engine URLSession became invalid"`.
+        /// Source: https://github.com/socketio/socket.io-client-swift/blob/42da871d9369f290d6ec4930636c40672143905b/Source/SocketIO/Engine/SocketEngine.swift#L738
+        case engineURLSessionInvalid
         /// No reason provided (`nil` or empty string).
         case none
         /// Any reason string that doesn't match known upstream literals.
@@ -76,6 +85,12 @@ public extension SocketIOClient {
                 self = .addingNewEngine
             case "manual reconnect":
                 self = .manualReconnect
+            case "error parsing open packet":
+                self = .openPacketParsingFailed
+            case "open packet contained no sid":
+                self = .openPacketMissingSID
+            case "engine urlsession became invalid":
+                self = .engineURLSessionInvalid
             default:
                 self = .unknown(normalized)
             }

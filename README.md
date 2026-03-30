@@ -89,7 +89,7 @@ Public async extension surface:
 - `.error(SocketIOClient.Error)`
 - `.ping`
 - `.pong`
-- `.reconnect(reason: String?)`
+- `.reconnect(reason: SocketIOClient.DisconnectReason)`
 - `.reconnectAttempt(remaining: Int?)`
 - `.statusChange(SocketIOStatus)`
 - `.websocketUpgrade(headers: [String: String])`

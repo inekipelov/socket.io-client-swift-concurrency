@@ -9,7 +9,7 @@ public extension SocketIOClient {
         case error(SocketIOClient.Error)
         case ping
         case pong
-        case reconnect(reason: String?)
+        case reconnect(reason: SocketIOClient.DisconnectReason)
         case reconnectAttempt(remaining: Int?)
         case statusChange(SocketIOStatus)
         case websocketUpgrade(headers: [String: String])
@@ -53,7 +53,11 @@ extension SocketIOClient.ClientEventPayload {
 
             self = .pong
         case .reconnect:
-            self = .reconnect(reason: try Self.optionalString(from: data, event: event, expected: "[reason?]"))
+            self = .reconnect(
+                reason: SocketIOClient.DisconnectReason(
+                    rawReason: try Self.optionalString(from: data, event: event, expected: "[reason?]")
+                )
+            )
         case .reconnectAttempt:
             self = .reconnectAttempt(
                 remaining: try Self.optionalInt(

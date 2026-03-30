@@ -613,6 +613,13 @@ struct SocketIOClientAsyncTests {
         #expect(payload == .disconnect(reason: .pingTimeout))
     }
 
+    @Test("DisconnectReason maps deterministic engine error reasons")
+    func disconnectReasonMapsEngineErrorReasons() {
+        #expect(SocketIOClient.DisconnectReason(rawReason: "Error parsing open packet") == .openPacketParsingFailed)
+        #expect(SocketIOClient.DisconnectReason(rawReason: "Open packet contained no sid") == .openPacketMissingSID)
+        #expect(SocketIOClient.DisconnectReason(rawReason: "Engine URLSession became invalid") == .engineURLSessionInvalid)
+    }
+
     @Test("on(clientEvent:) maps missing disconnect reason to none")
     func onClientEventDisconnectNoneReason() async throws {
         let manager = makeManager()
@@ -624,6 +631,32 @@ struct SocketIOClientAsyncTests {
 
         let payload = try #require(try await iterator.next())
         #expect(payload == .disconnect(reason: .none))
+    }
+
+    @Test("on(clientEvent:) maps reconnect reason")
+    func onClientEventReconnectReason() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .reconnect)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.reconnect, data: ["Ping timeout"])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .reconnect(reason: .pingTimeout))
+    }
+
+    @Test("on(clientEvent:) maps missing reconnect reason to none")
+    func onClientEventReconnectNoneReason() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .reconnect)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.reconnect, data: [])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .reconnect(reason: .none))
     }
 
     @Test("on(clientEvent:) maps connect without payload")
