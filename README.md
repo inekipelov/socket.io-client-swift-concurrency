@@ -69,7 +69,8 @@ Public async extension surface:
 
 `SocketIOClient.ClientEventPayload` cases:
 
-- `.connect(namespace: String, payload: SocketIOClient.Payload?)`
+- `.connect(namespace: String)`
+- `.connectWithPayload(namespace: String, payload: SocketIOClient.Payload)`
 - `.disconnect(reason: String?)`
 - `.error(SocketIOClient.Error)`
 - `.ping`

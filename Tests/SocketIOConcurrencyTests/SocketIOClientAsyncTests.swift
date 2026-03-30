@@ -470,6 +470,37 @@ struct SocketIOClientAsyncTests {
         #expect(payload == .disconnect(reason: "Server closed"))
     }
 
+    @Test("on(clientEvent:) maps connect without payload")
+    func onClientEventConnect() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .connect)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.connect, data: ["/chat"])
+
+        let payload = try #require(try await iterator.next())
+        #expect(payload == .connect(namespace: "/chat"))
+    }
+
+    @Test("on(clientEvent:) maps connect with payload")
+    func onClientEventConnectWithPayload() async throws {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let stream = socket.on(clientEvent: .connect)
+        var iterator = stream.makeAsyncIterator()
+
+        socket.handleClientEvent(.connect, data: ["/chat", ["sid": "abc"]])
+
+        let payload = try #require(try await iterator.next())
+        #expect(
+            payload == .connectWithPayload(
+                namespace: "/chat",
+                payload: .object(["sid": .string("abc")])
+            )
+        )
+    }
+
     @Test("on(clientEvent:) maps ping and pong")
     func onClientEventPingPong() async throws {
         let manager = makeManager()
