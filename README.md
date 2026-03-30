@@ -17,7 +17,7 @@ concurrency semantics through `SocketIOClient.AsyncThrowingStream`, `async`, and
 
 ## Usage
 
-One end-to-end async flow without callback plumbing:
+Minimal async flow without callback nesting:
 
 ```swift
 import SocketIOConcurrency
@@ -31,20 +31,16 @@ let socket = manager.defaultSocket
 try await socket.connect()
 defer { Task { try? await socket.disconnect() } }
 
-let messages = socket.on("pongEvent")
-let listenTask = Task {
-    for try await payload in messages {
-        if case let .array(items) = payload {
-            print("pongEvent:", items)
-        }
+let incomingTask = Task {
+    for try await payload in socket.on("message:new") {
+        print("incoming:", payload)
     }
 }
 
-let ack = try await socket.emitWithAck("ping", "hello", timeout: 3.0)
+let ack = try await socket.emitWithAck("message:send", "hello", timeout: 3.0)
 print("ack:", ack)
 
-await socket.emit("echo", "value")
-listenTask.cancel()
+incomingTask.cancel()
 ```
 
 Public async extension surface:
