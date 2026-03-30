@@ -55,8 +55,8 @@ Public async extension surface:
 
 - `on(_ event: String) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error>`
 - `on(clientEvent event: SocketClientEvent) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.ClientEventPayload, SocketIOClient.Error>`
-- `connect(withPayload payload: [String: Any]? = nil, timeout: TimeInterval) async throws(SocketIOClient.Error)`
-- `disconnect(timeout: TimeInterval) async throws(SocketIOClient.Error)`
+- `connect(withPayload payload: [String: Any]? = nil, timeout: TimeInterval = 5) async throws(SocketIOClient.Error)`
+- `disconnect(timeout: TimeInterval = 5) async throws(SocketIOClient.Error)`
 - `emit(_ event: String, _ items: SocketData...) async`
 - `emit(_ event: String, with items: [SocketData]) async`
 - `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws(SocketIOClient.Error) -> SocketIOClient.Payload`

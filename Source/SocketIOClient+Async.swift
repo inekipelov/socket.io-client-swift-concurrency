@@ -11,7 +11,7 @@ public extension SocketIOClient {
     @preconcurrency
     func connect(
         withPayload payload: [String: Any]? = nil,
-        timeout: TimeInterval
+        timeout: TimeInterval = 5
     ) async throws(SocketIOClient.Error) {
         guard status != .connected else {
             return
@@ -58,7 +58,7 @@ public extension SocketIOClient {
     /// - Parameter timeout: Timeout in seconds for waiting on `.disconnect`.
     /// - Throws: `SocketIOClient.Error`.
     @preconcurrency
-    func disconnect(timeout: TimeInterval) async throws(SocketIOClient.Error) {
+    func disconnect(timeout: TimeInterval = 5) async throws(SocketIOClient.Error) {
         guard status != .disconnected else {
             return
         }
