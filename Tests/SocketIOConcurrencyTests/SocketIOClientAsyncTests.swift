@@ -53,6 +53,99 @@ struct SocketIOClientAsyncTests {
         }
     }
 
+    @Test("connect normalizes and forwards [String: SocketData] payload")
+    func connectNormalizesAndForwardsPayload() async throws {
+        let manager = makeManager()
+        let socket = RecordingConnectPayloadSocketIOClient(manager: manager, nsp: "/")
+
+        let nested: [String: SocketData] = [
+            "tags": ["a", "b"],
+            "ok": true,
+        ]
+        let payload: [String: SocketData] = [
+            "name": "john",
+            "retry": 1,
+            "meta": nested,
+        ]
+
+        try await socket.connect(withPayload: payload, timeout: 1.0)
+
+        let captured = try #require(socket.capturedConnectPayload)
+        #expect(captured["name"] as? String == "john")
+        #expect(captured["retry"] as? Int == 1)
+
+        let meta = try #require(captured["meta"] as? [String: Any])
+        #expect(meta["ok"] as? Bool == true)
+        let tags = try #require(meta["tags"] as? [Any])
+        #expect(tags.count == 2)
+        #expect(tags[0] as? String == "a")
+        #expect(tags[1] as? String == "b")
+    }
+
+    @Test("connect maps payload serialization failures to invalidSocketData")
+    func connectMapsPayloadSerializationFailure() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let payload: [String: SocketData] = ["bad": ThrowingConnectPayload()]
+
+        do {
+            try await socket.connect(withPayload: payload, timeout: 1.0)
+            Issue.record("Expected payload serialization failure")
+        } catch let error {
+            guard case .invalidSocketData(let event, _) = error else {
+                Issue.record("Expected .invalidSocketData, got \(error)")
+                return
+            }
+
+            #expect(event == SocketClientEvent.connect.rawValue)
+        }
+    }
+
+    @Test("connect preserves invalid timeout priority over payload conversion failures")
+    func connectInvalidTimeoutPrecedesPayloadConversionFailure() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let payload: [String: SocketData] = ["bad": ThrowingConnectPayload()]
+
+        do {
+            try await socket.connect(withPayload: payload, timeout: 0)
+            Issue.record("Expected invalid timeout")
+        } catch let error {
+            guard case .invalidTimeout(let timeout) = error else {
+                Issue.record("Expected .invalidTimeout, got \(error)")
+                return
+            }
+
+            #expect(timeout == 0)
+        }
+    }
+
+    @Test("connect preserves cancellation priority over payload conversion failures")
+    func connectCancellationPrecedesPayloadConversionFailure() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let payload: [String: SocketData] = ["bad": ThrowingConnectPayload()]
+
+        let task = Task<SocketIOClient.Error?, Never> {
+            withUnsafeCurrentTask { $0?.cancel() }
+
+            do {
+                try await socket.connect(withPayload: payload, timeout: 1.0)
+                return nil as SocketIOClient.Error?
+            } catch let error as SocketIOClient.Error {
+                return error
+            } catch {
+                return .invalidSocketData(
+                    event: SocketClientEvent.connect.rawValue,
+                    message: "Unexpected non-typed error: \((error as NSError).localizedDescription)"
+                )
+            }
+        }
+        let error = await task.value
+
+        #expect(error == .cancelled)
+    }
+
     @Test("connect supports cancellation")
     func connectCancellation() async {
         let manager = makeManager()
@@ -856,6 +949,23 @@ private final class RecordingConnectSocketIOClient: SocketIOClient {
     }
 }
 
+private final class RecordingConnectPayloadSocketIOClient: SocketIOClient {
+    private(set) var capturedConnectPayload: [String: Any]?
+
+    override func connect(withPayload payload: [String: Any]?, timeoutAfter: Double, withHandler handler: (() -> ())?) {
+        capturedConnectPayload = payload
+        manager?.handleQueue.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.didConnect(toNamespace: self.nsp, payload: nil)
+        }
+    }
+}
+
+extension RecordingConnectPayloadSocketIOClient: @unchecked Sendable {}
+
 private final class RecordingDisconnectSocketIOClient: SocketIOClient {
     private let emitDisconnectEvent: Bool
 
@@ -900,5 +1010,13 @@ private final class AckDispatchProbe: @unchecked Sendable {
         lock.lock()
         count += 1
         lock.unlock()
+    }
+}
+
+private struct ThrowingConnectPayload: SocketData {
+    struct Failure: Swift.Error {}
+
+    func socketRepresentation() throws -> SocketData {
+        throw Failure()
     }
 }

@@ -29,7 +29,7 @@ public extension SocketIOClient {
 
 extension SocketIOClient.Payload: SocketData {
     public func socketRepresentation() throws -> SocketData {
-        SocketIOPayloadConverter.encode(payload: self)
+        SocketIOPayloadCodec.encode(payload: self)
     }
 }
 
@@ -77,15 +77,32 @@ extension SocketIOClient.Payload: ExpressibleByDictionaryLiteral {
 
 extension SocketIOClient.Payload {
     init(socketValues values: [Any]) throws(SocketIOClient.Error) {
-        self = try SocketIOPayloadConverter.decode(socketValues: values)
+        self = try SocketIOPayloadCodec.decode(socketValues: values)
     }
 
     init(socketValue value: Any) throws(SocketIOClient.Error) {
-        self = try SocketIOPayloadConverter.decode(socketValue: value)
+        self = try SocketIOPayloadCodec.decode(socketValue: value)
     }
 }
 
-private enum SocketIOPayloadConverter {
+enum SocketIOPayloadCodec {
+    private static let maxNormalizationDepth = 64
+
+    static func normalize(socketDataByKey payload: [String: SocketData]?) throws(SocketIOClient.Error) -> [String: Any]? {
+        guard let payload else {
+            return nil
+        }
+
+        var normalized: [String: Any] = [:]
+        normalized.reserveCapacity(payload.count)
+
+        for (key, value) in payload {
+            normalized[key] = try normalize(socketValue: value, path: key, depth: 0)
+        }
+
+        return normalized
+    }
+
     static func decode(socketValues values: [Any]) throws(SocketIOClient.Error) -> SocketIOClient.Payload {
         if values.count == 1, let value = values.first {
             return try decode(socketValue: value)
@@ -241,4 +258,46 @@ private enum SocketIOPayloadConverter {
             return mapped
         }
     }
+
+    private static func normalize(
+        socketValue value: Any,
+        path: String,
+        depth: Int
+    ) throws(SocketIOClient.Error) -> Any {
+        guard depth < maxNormalizationDepth else {
+            throw SocketIOClient.Error.invalidSocketData(
+                event: SocketClientEvent.connect.rawValue,
+                message: "Connect payload is too deeply nested at '\(path)'"
+            )
+        }
+
+        do {
+            let payload = try decode(socketValue: value)
+            return encodeAny(payload: payload)
+        } catch {
+            guard let socketValue = value as? SocketData else {
+                throw SocketIOClient.Error.invalidSocketData(
+                    event: SocketClientEvent.connect.rawValue,
+                    message: "Failed to serialize connect payload at '\(path)': \(error)"
+                )
+            }
+
+            do {
+                let represented = try socketValue.socketRepresentation()
+                return try normalize(
+                    socketValue: represented,
+                    path: path,
+                    depth: depth + 1
+                )
+            } catch let typedError as SocketIOClient.Error {
+                throw typedError
+            } catch {
+                throw SocketIOClient.Error.invalidSocketData(
+                    event: SocketClientEvent.connect.rawValue,
+                    message: "Failed to serialize connect payload at '\(path)': \((error as NSError).localizedDescription)"
+                )
+            }
+        }
+    }
+
 }

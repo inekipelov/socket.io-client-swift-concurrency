@@ -63,7 +63,7 @@ Public async extension surface:
 | `on(_ event: String) -> AsyncThrowingStream<Payload, Error>` | Subscribes to a regular socket event and gives you a typed async stream with automatic handler cleanup. |
 | `on(clientEvent event: SocketClientEvent) -> AsyncThrowingStream<ClientEventPayload, Error>` | Subscribes to Socket.IO lifecycle/client events (`connect`, `disconnect`, `error`, etc.) with structured payload mapping. |
 | `onStatusChange() -> AsyncThrowingStream<SocketIOStatus, Error>` | Convenience stream for `.statusChange` events that yields only `SocketIOStatus` values. |
-| `connect(withPayload payload: [String: Any]? = nil, timeout: TimeInterval = 5) async throws(Error)` | Connects and suspends until the socket is actually connected; throws typed timeout/cancel/error cases. |
+| `connect(withPayload payload: [String: SocketData]? = nil, timeout: TimeInterval = 5) async throws(Error)` | Connects and suspends until the socket is actually connected; throws typed timeout/cancel/error cases. |
 | `disconnect(timeout: TimeInterval = 5) async throws(Error)` | Disconnects and waits for confirmed disconnection (including status fallback), with typed timeout/cancel handling. |
 | `emit(_ event: String, _ items: SocketData...) async` | Emits an event and awaits write completion using variadic payload arguments. |
 | `emit(_ event: String, with items: [SocketData]) async` | Emits an event and awaits write completion using an explicit payload array. |

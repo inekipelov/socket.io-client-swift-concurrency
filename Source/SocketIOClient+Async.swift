@@ -10,7 +10,7 @@ public extension SocketIOClient {
     /// - Throws: `SocketIOClient.Error`.
     @preconcurrency
     func connect(
-        withPayload payload: [String: Any]? = nil,
+        withPayload payload: [String: SocketData]? = nil,
         timeout: TimeInterval = 5
     ) async throws(SocketIOClient.Error) {
         guard status != .connected else {
@@ -47,8 +47,20 @@ public extension SocketIOClient {
                 },
             ]
         ) { finish in
-            self.connect(withPayload: payloadBox.payload, timeoutAfter: timeout) {
-                finish(.failure(.connectTimedOut(timeout: timeout)))
+            do {
+                let normalizedPayload = try SocketIOPayloadCodec.normalize(socketDataByKey: payloadBox.payload)
+                self.connect(withPayload: normalizedPayload, timeoutAfter: timeout) {
+                    finish(.failure(.connectTimedOut(timeout: timeout)))
+                }
+            } catch {
+                finish(
+                    .failure(
+                        SocketIOClient.Error(
+                            thrown: error,
+                            event: SocketClientEvent.connect.rawValue
+                        )
+                    )
+                )
             }
         }
     }
@@ -316,9 +328,9 @@ public extension SocketIOClient {
 }
 
 private final class SocketConnectPayloadBox: @unchecked Sendable {
-    let payload: [String: Any]?
+    let payload: [String: SocketData]?
 
-    init(_ payload: [String: Any]?) {
+    init(_ payload: [String: SocketData]?) {
         self.payload = payload
     }
 }
