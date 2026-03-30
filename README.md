@@ -53,8 +53,8 @@ Public async extension surface:
 | `disconnect(timeout: TimeInterval = 5) async throws(Error)` | Disconnects and waits for confirmed disconnection (including status fallback), with typed timeout/cancel handling. |
 | `emit(_ event: String, _ items: SocketData...) async` | Emits an event and awaits write completion using variadic payload arguments. |
 | `emit(_ event: String, with items: [SocketData]) async` | Emits an event and awaits write completion using an explicit payload array. |
-| `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws(Error) -> Payload` | Emits an event expecting server acknowledgement and returns the ack payload as typed `Payload`. |
-| `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws(Error) -> Payload` | Same ack flow as above, but for array-based payload construction. |
+| `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval = 5) async throws(Error) -> Payload` | Emits an event expecting server acknowledgement and returns the ack payload as typed `Payload`. |
+| `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval = 5) async throws(Error) -> Payload` | Same ack flow as above, but for array-based payload construction. |
 
 `SocketIOClient.Payload` cases:
 

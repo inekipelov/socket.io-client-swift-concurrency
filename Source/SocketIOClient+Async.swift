@@ -226,7 +226,7 @@ public extension SocketIOClient {
     func emitWithAck(
         _ event: String,
         _ items: SocketData...,
-        timeout: TimeInterval
+        timeout: TimeInterval = 5
     ) async throws(SocketIOClient.Error) -> SocketIOClient.Payload {
         try await emitWithAck(event, with: items, timeout: timeout)
     }
@@ -243,7 +243,7 @@ public extension SocketIOClient {
     func emitWithAck(
         _ event: String,
         with items: [SocketData],
-        timeout: TimeInterval
+        timeout: TimeInterval = 5
     ) async throws(SocketIOClient.Error) -> SocketIOClient.Payload {
         guard timeout > 0 else {
             throw SocketIOClient.Error.invalidTimeout(timeout)
