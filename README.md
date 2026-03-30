@@ -17,6 +17,8 @@ concurrency semantics through `SocketIOClient.AsyncThrowingStream`, `async`, and
 
 ## Usage
 
+One end-to-end async flow without callback plumbing:
+
 ```swift
 import SocketIOConcurrency
 
@@ -26,41 +28,37 @@ let manager = SocketManager(
 )
 let socket = manager.defaultSocket
 
-socket.connect()
+try await socket.connect()
+defer { Task { try? await socket.disconnect() } }
 
-let ack = try await socket.emitWithAck("ping", "hello", timeout: 3.0)
-switch ack {
-case .array(let values):
-    print(values)
-case .string, .int, .double, .bool, .null, .data, .object:
-    break
-}
-
-let stream: SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error> = socket.on("pongEvent")
-let task = Task {
-    for try await payload in stream {
-        if case let .array(values) = payload {
-            print(values)
+let messages = socket.on("pongEvent")
+let listenTask = Task {
+    for try await payload in messages {
+        if case let .array(items) = payload {
+            print("pongEvent:", items)
         }
     }
 }
 
-await socket.emit("echo", "value")
+let ack = try await socket.emitWithAck("ping", "hello", timeout: 3.0)
+print("ack:", ack)
 
-task.cancel()
-socket.disconnect()
+await socket.emit("echo", "value")
+listenTask.cancel()
 ```
 
 Public async extension surface:
 
-- `on(_ event: String) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.Payload, SocketIOClient.Error>`
-- `on(clientEvent event: SocketClientEvent) -> SocketIOClient.AsyncThrowingStream<SocketIOClient.ClientEventPayload, SocketIOClient.Error>`
-- `connect(withPayload payload: [String: Any]? = nil, timeout: TimeInterval = 5) async throws(SocketIOClient.Error)`
-- `disconnect(timeout: TimeInterval = 5) async throws(SocketIOClient.Error)`
-- `emit(_ event: String, _ items: SocketData...) async`
-- `emit(_ event: String, with items: [SocketData]) async`
-- `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws(SocketIOClient.Error) -> SocketIOClient.Payload`
-- `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws(SocketIOClient.Error) -> SocketIOClient.Payload`
+| Method | Description |
+| --- | --- |
+| `on(_ event: String) -> AsyncThrowingStream<Payload, Error>` | Subscribes to a regular socket event and gives you a typed async stream with automatic handler cleanup. |
+| `on(clientEvent event: SocketClientEvent) -> AsyncThrowingStream<ClientEventPayload, Error>` | Subscribes to Socket.IO lifecycle/client events (`connect`, `disconnect`, `error`, etc.) with structured payload mapping. |
+| `connect(withPayload payload: [String: Any]? = nil, timeout: TimeInterval = 5) async throws(Error)` | Connects and suspends until the socket is actually connected; throws typed timeout/cancel/error cases. |
+| `disconnect(timeout: TimeInterval = 5) async throws(Error)` | Disconnects and waits for confirmed disconnection (including status fallback), with typed timeout/cancel handling. |
+| `emit(_ event: String, _ items: SocketData...) async` | Emits an event and awaits write completion using variadic payload arguments. |
+| `emit(_ event: String, with items: [SocketData]) async` | Emits an event and awaits write completion using an explicit payload array. |
+| `emitWithAck(_ event: String, _ items: SocketData..., timeout: TimeInterval) async throws(Error) -> Payload` | Emits an event expecting server acknowledgement and returns the ack payload as typed `Payload`. |
+| `emitWithAck(_ event: String, with items: [SocketData], timeout: TimeInterval) async throws(Error) -> Payload` | Same ack flow as above, but for array-based payload construction. |
 
 `SocketIOClient.Payload` cases:
 
