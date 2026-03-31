@@ -278,6 +278,10 @@ public extension SocketIOClient {
             throw SocketIOClient.Error(thrown: error, event: event)
         }
 
+        guard status == .connected else {
+            throw SocketIOClient.Error.notConnected(event: event)
+        }
+
         let continuationState = SocketAckContinuationState<SocketIOClient.Payload>()
         let queue = self.manager?.handleQueue ?? DispatchQueue.main
 

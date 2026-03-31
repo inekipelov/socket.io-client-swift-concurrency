@@ -411,6 +411,26 @@ struct SocketIOClientAsyncTests {
         }
     }
 
+    @Test("emitWithAck throws notConnected immediately when socket is disconnected")
+    func emitWithAckDisconnectedReturnsNotConnectedImmediately() async {
+        let manager = makeManager()
+        let socket = SocketIOClient(manager: manager, nsp: "/")
+        let start = Date()
+
+        do {
+            _ = try await socket.emitWithAck("disconnectedEvent", timeout: 1.0)
+            Issue.record("Expected not connected error")
+        } catch let error {
+            guard case let .notConnected(event) = error else {
+                Issue.record("Expected .notConnected, got \(error)")
+                return
+            }
+
+            #expect(event == "disconnectedEvent")
+            #expect(Date().timeIntervalSince(start) < 0.2)
+        }
+    }
+
     @Test("emitWithAck does not dispatch emit after early cancellation")
     func emitWithAckCancellationPreventsDispatch() async {
         let manager = makeManager()
