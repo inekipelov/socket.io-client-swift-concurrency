@@ -100,7 +100,7 @@ public extension SocketIOClient {
             ]
         ) { finish in
             self.disconnect()
-            let queue = self.manager?.handleQueue ?? DispatchQueue.main
+            let queue = self.resolvedHandleQueue()
             queue.asyncAfter(deadline: .now() + timeout) {
                 finish(.failure(.disconnectTimedOut(timeout: timeout)))
             }
@@ -228,7 +228,7 @@ public extension SocketIOClient {
     @preconcurrency
     func emit(_ event: String, with items: [SocketData]) async {
         await withCheckedContinuation { continuation in
-            let queue = self.manager?.handleQueue ?? DispatchQueue.main
+            let queue = self.resolvedHandleQueue()
             queue.async {
                 self.emit(event, with: items, completion: {
                     continuation.resume()
@@ -283,7 +283,7 @@ public extension SocketIOClient {
         }
 
         let continuationState = SocketAckContinuationState<SocketIOClient.Payload>()
-        let queue = self.manager?.handleQueue ?? DispatchQueue.main
+        let queue = self.resolvedHandleQueue()
 
         let result: Result<SocketIOClient.Payload, SocketIOClient.Error> = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
@@ -393,7 +393,7 @@ private extension SocketIOClient {
 
         let continuationState = SocketAckContinuationState<Void>()
         let states = subscriptions.map(\.state)
-        let queue = manager?.handleQueue ?? DispatchQueue.main
+        let queue = resolvedHandleQueue()
         let result: Result<Void, SocketIOClient.Error> = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard continuationState.register(continuation) else {
@@ -457,18 +457,11 @@ private extension SocketIOClient {
 
     @preconcurrency
     func registerOnHandleQueue(_ register: () -> Void) -> DispatchQueue {
-        let queue = manager?.handleQueue ?? DispatchQueue.main
-        let queueKey = DispatchSpecificKey<UInt8>()
-        let queueValue: UInt8 = 1
-        queue.setSpecific(key: queueKey, value: queueValue)
+        SocketHandleQueueContext.register(on: resolvedHandleQueue(), register)
+    }
 
-        if DispatchQueue.getSpecific(key: queueKey) == queueValue {
-            register()
-        } else {
-            queue.sync(execute: register)
-        }
-
-        return queue
+    func resolvedHandleQueue() -> DispatchQueue {
+        SocketHandleQueueContext.queue(for: manager)
     }
 
     @preconcurrency
